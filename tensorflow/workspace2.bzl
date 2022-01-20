@@ -454,7 +454,7 @@ def _tf_repositories():
 
     tf_http_archive(
         name = "com_google_protobuf",
-        patch_file = ["//third_party/protobuf:protobuf.patch"],
+        patch_file = ["//third_party/protobuf:protobuf.patch", "//third_party/protobuf:protobuf_fix_link.patch"],
         sha256 = "18b0a055105afc73d09948beec67b4b56d17ee55b0669cd105d246954adc59ae",
         strip_prefix = "protobuf-3.15.2",
         system_build_file = "//third_party/systemlibs:protobuf.BUILD",

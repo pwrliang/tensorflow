@@ -1,0 +1,25 @@
+From 521e0220229d7846b82ebc260ea6c733419ec7ed Mon Sep 17 00:00:00 2001
+From: Liang Geng <geng.161@osu.edu>
+Date: Wed, 19 Jan 2022 21:32:51 -0500
+Subject: [PATCH] link with gcc 9.3.0 on RI2
+
+---
+ BUILD | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/BUILD b/BUILD
+index 112432160..e2cff1ce8 100644
+--- a/BUILD
++++ b/BUILD
+@@ -472,7 +472,7 @@ cc_library(
+     ],
+     copts = COPTS,
+     includes = ["src/"],
+-    linkopts = LINK_OPTS,
++    linkopts = LINK_OPTS + ["-Wl,-rpath,/opt/gcc/9.3.0/lib64", "-L/opt/gcc/9.3.0/lib64"],
+     visibility = ["//visibility:public"],
+     deps = [":protobuf"],
+ )
+-- 
+2.32.0 (Apple Git-132)
+

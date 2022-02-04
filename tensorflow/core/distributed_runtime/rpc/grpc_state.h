@@ -108,6 +108,10 @@ class RPCState : public GrpcClientCQTag {
       delete this;
       return;
     }
+    int timeout_in_s;
+    if (absl::SimpleAtoi(std::getenv("TF_CPP_GRPC_TIMEOUT"), &timeout_in_s)) {
+      timeout_in_ms_ = timeout_in_s * 1000;
+    }
     StartCall();
   }
 
@@ -158,6 +162,7 @@ class RPCState : public GrpcClientCQTag {
 
     LOG(ERROR) << method_ << " returned with non-ok status: " << s
                << " Retries: " << num_retries_ << " Max: " << max_retries_
+               << " Timeout: " << timeout_in_ms_ << " ms"
                << "\n"
                << context_->debug_error_string();
     // Retry if we have any attempts left

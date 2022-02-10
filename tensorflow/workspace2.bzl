@@ -53,6 +53,9 @@ load("@tf_toolchains//toolchains/remote:configure.bzl", "remote_execution_config
 load("@tf_toolchains//toolchains/clang6:repo.bzl", "clang6_configure")
 load("@rules_pkg//:deps.bzl", "rules_pkg_dependencies")
 
+# For using git clone
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+
 def _initialize_third_party():
     """ Load third party repositories.  See above load() statements. """
     FP16()
@@ -497,22 +500,32 @@ def _tf_repositories():
     )
 
     # WARNING: make sure ncteisen@ and vpai@ are cc-ed on any CL to change the below rule
-    tf_http_archive(
+#    tf_http_archive(
+#        name = "com_github_grpc_grpc",
+#        sha256 = "f909e389ab49861cfa11c48d2fa658bc169cfd775dcbe93205af654079bf8926",
+#        strip_prefix = "grpc-54dc182082db941aa67c7c3f93ad858c99a16d7d",
+#        system_build_file = "//third_party/systemlibs:grpc.BUILD",
+#        patch_file = ["//third_party/grpc:generate_cc_env_fix.patch"],
+#        system_link_files = {
+#            "//third_party/systemlibs:BUILD": "bazel/BUILD",
+#            "//third_party/systemlibs:grpc.BUILD": "src/compiler/BUILD",
+#            "//third_party/systemlibs:grpc.bazel.grpc_deps.bzl": "bazel/grpc_deps.bzl",
+#            "//third_party/systemlibs:grpc.bazel.grpc_extra_deps.bzl": "bazel/grpc_extra_deps.bzl",
+#            "//third_party/systemlibs:grpc.bazel.cc_grpc_library.bzl": "bazel/cc_grpc_library.bzl",
+#            "//third_party/systemlibs:grpc.bazel.generate_cc.bzl": "bazel/generate_cc.bzl",
+#            "//third_party/systemlibs:grpc.bazel.protobuf.bzl": "bazel/protobuf.bzl",
+#        },
+#        urls = tf_mirror_urls("https://github.com/grpc/grpc/archive/54dc182082db941aa67c7c3f93ad858c99a16d7d.tar.gz"),
+#    )
+
+    git_repository(
         name = "com_github_grpc_grpc",
-        sha256 = "f909e389ab49861cfa11c48d2fa658bc169cfd775dcbe93205af654079bf8926",
-        strip_prefix = "grpc-54dc182082db941aa67c7c3f93ad858c99a16d7d",
-        system_build_file = "//third_party/systemlibs:grpc.BUILD",
-        patch_file = ["//third_party/grpc:generate_cc_env_fix.patch"],
-        system_link_files = {
-            "//third_party/systemlibs:BUILD": "bazel/BUILD",
-            "//third_party/systemlibs:grpc.BUILD": "src/compiler/BUILD",
-            "//third_party/systemlibs:grpc.bazel.grpc_deps.bzl": "bazel/grpc_deps.bzl",
-            "//third_party/systemlibs:grpc.bazel.grpc_extra_deps.bzl": "bazel/grpc_extra_deps.bzl",
-            "//third_party/systemlibs:grpc.bazel.cc_grpc_library.bzl": "bazel/cc_grpc_library.bzl",
-            "//third_party/systemlibs:grpc.bazel.generate_cc.bzl": "bazel/generate_cc.bzl",
-            "//third_party/systemlibs:grpc.bazel.protobuf.bzl": "bazel/protobuf.bzl",
-        },
-        urls = tf_mirror_urls("https://github.com/grpc/grpc/archive/54dc182082db941aa67c7c3f93ad858c99a16d7d.tar.gz"),
+        # branch = "tf1.38.0",
+        commit = "3a34836d0aaf08944c1c306c8e379985174c5326",
+        init_submodules = True,
+        recursive_init_submodules = True,
+        remote = "git@github.com:hwang121/grpc-rdma.git",
+        verbose = True
     )
 
     tf_http_archive(

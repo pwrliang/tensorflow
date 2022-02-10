@@ -108,6 +108,10 @@ class RPCState : public GrpcClientCQTag {
       delete this;
       return;
     }
+    int timeout_in_s;
+    if (absl::SimpleAtoi(std::getenv("TF_CPP_GRPC_TIMEOUT"), &timeout_in_s)) {
+      timeout_in_ms_ = timeout_in_s * 1000;
+    }
     StartCall();
   }
 
@@ -156,15 +160,17 @@ class RPCState : public GrpcClientCQTag {
       return;
     }
 
-    VLOG(1) << method_ << " returned with non-ok status: " << s
-            << " Retries: " << num_retries_ << " Max: " << max_retries_ << "\n"
-            << context_->debug_error_string();
+    LOG(ERROR) << method_ << " returned with non-ok status: " << s
+               << " Retries: " << num_retries_ << " Max: " << max_retries_
+               << " Timeout: " << timeout_in_ms_ << " ms"
+               << "\n"
+               << context_->debug_error_string();
     // Retry if we have any attempts left
     if (++num_retries_ <= max_retries_ &&
         (errors::IsUnavailable(s) || errors::IsUnknown(s))) {
       response_buf_.Clear();
-      VLOG(1) << "Retrying call for " << method_ << "Retry: " << num_retries_
-              << " of " << max_retries_;
+      LOG(ERROR) << "Retrying call for " << method_ << "Retry: " << num_retries_
+                 << " of " << max_retries_;
 
       ComputeRetryBackoffMs(/*min_backoff_ms=*/1, /*max_backoff_ms=*/10000);
       int64_t backoff_us = retry_backoff_ms_ * 1000;
@@ -185,6 +191,7 @@ class RPCState : public GrpcClientCQTag {
       if (s.code() == tensorflow::error::Code::CANCELLED) {
         s = StatusGroup::MakeDerived(s);
       }
+      LOG(ERROR) << "Last retry: " << s;
 
       done_(s);
       delete this;
@@ -196,6 +203,10 @@ class RPCState : public GrpcClientCQTag {
     if (!GrpcMaybeParseProto(&response_buf_, response_)) {
       s.Update(errors::Internal("could not parse rpc response"));
     }
+
+    LOG(INFO) << "Call completed: " << method_
+              << " req size: " << request_buf_.Length()
+              << " resp size: " << response_buf_.Length();
     done_(s);
     delete this;
   }

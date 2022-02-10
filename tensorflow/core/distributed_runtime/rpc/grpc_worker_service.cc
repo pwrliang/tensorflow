@@ -294,6 +294,7 @@ class GrpcWorkerServiceThread {
                               delete call_opts;
                               if (!s.ok()) {
                                 VLOG(3) << "Bad response from RecvBuf:" << s;
+                                LOG(ERROR) << "Bad response from RecvBuf:" << s;
                               }
                               call->SendResponse(ToGrpcStatus(s));
                             });

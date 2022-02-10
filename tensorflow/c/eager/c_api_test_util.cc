@@ -479,3 +479,31 @@ tensorflow::ServerDef GetMultiClientServerDef(const std::string& job_name,
   }
   return server_def;
 }
+
+tensorflow::ServerDef GetCustomMultiClientServerDef(
+    const std::string& job_name, const std::vector<std::string>& hosts) {
+  tensorflow::ServerDef server_def;
+  server_def.set_protocol("grpc");
+  server_def.set_job_name(job_name);
+  server_def.set_task_index(0);
+  tensorflow::ClusterDef* cluster_def = server_def.mutable_cluster();
+  tensorflow::JobDef* job_def = cluster_def->add_job();
+  job_def->set_name(job_name);
+  int port = 20000;
+  for (int i = 0; i < hosts.size(); i++) {
+    job_def->mutable_tasks()->insert(
+        {i, tensorflow::strings::StrCat(hosts[i] + ":", port)});
+    port++;
+  }
+  auto* config = server_def.mutable_default_session_config();
+  config->mutable_experimental()->set_collective_group_leader(
+      tensorflow::strings::StrCat("/job:", job_name, "/replica:0/task:", 0));
+  auto* rewrite_options =
+      config->mutable_graph_options()->mutable_rewrite_options();
+  rewrite_options->set_scoped_allocator_optimization(
+      tensorflow::RewriterConfig::ON);
+  rewrite_options->mutable_scoped_allocator_opts()->add_enable_op(
+      "CollectiveReduce");
+
+  return server_def;
+}

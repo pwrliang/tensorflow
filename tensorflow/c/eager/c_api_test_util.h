@@ -145,4 +145,6 @@ tensorflow::ServerDef GetMultiClientServerDef(const std::string& job_name,
                                               int num_tasks,
                                               int num_virtual_gpus = 0);
 
+tensorflow::ServerDef GetCustomMultiClientServerDef(
+    const std::string& job_name, const std::vector<std::string>& hosts);
 #endif  // TENSORFLOW_C_EAGER_C_API_TEST_UTIL_H_

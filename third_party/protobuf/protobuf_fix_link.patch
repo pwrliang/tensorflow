@@ -16,7 +16,7 @@ index 112432160..e2cff1ce8 100644
      copts = COPTS,
      includes = ["src/"],
 -    linkopts = LINK_OPTS,
-+    linkopts = LINK_OPTS + ["-Wl,-rpath,/opt/gcc/9.3.0/lib64", "-L/opt/gcc/9.3.0/lib64"],
++    linkopts = LINK_OPTS + ["-Wl,-rpath,/opt/gcc/9.4.0/lib64", "-L/opt/gcc/9.4.0/lib64"],
      visibility = ["//visibility:public"],
      deps = [":protobuf"],
  )

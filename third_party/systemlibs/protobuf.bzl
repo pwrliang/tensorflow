@@ -118,7 +118,7 @@ def _proto_gen_impl(ctx):
             mnemonic = "ProtoCompile",
             tools = tools,
             use_default_shell_env = True,
-            env = {LD_LIBRARY_PATH: /opt/gcc/9.3.0/lib64}
+            env = {LD_LIBRARY_PATH: /opt/gcc/9.4.0/lib64}
         )
 
     return struct(

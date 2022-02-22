@@ -135,8 +135,8 @@ class GrpcRemoteWorker : public WorkerInterface {
 
     auto callback = [this, request, response, done, start_usec,
                      logging_active](Status s) {
-      if (logging_active) {
-        if (logger_->LoggingActive()) {
+      if (logging_active || true) {
+        if (logger_->LoggingActive() || true) {
           int64_t end_usec = Env::Default()->NowMicros();
           int64_t step_id = request->step_id();
           RecvBufRespExtra extra;
@@ -154,6 +154,10 @@ class GrpcRemoteWorker : public WorkerInterface {
             send_start_usec = std::min(send_start_usec, end_usec - 1);
           }
           const string& key = request->buf_rendezvous_key();
+          LOG(INFO) << "RecvBufAsync, size: " << num_bytes
+                    << " time: " << (float)(end_usec - send_start_usec) / 1000
+                    << " ms";
+
           logger_->RecordDataTransfer(
               step_id, send_start_usec, end_usec, key, request->src_device(),
               request->dst_device(), num_bytes, "", "RecvBuf");

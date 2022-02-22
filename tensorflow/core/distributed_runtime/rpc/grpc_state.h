@@ -131,6 +131,7 @@ class RPCState : public GrpcClientCQTag {
     call_ = stub_->PrepareUnaryCall(context_.get(), method_, request_buf_, cq_);
     call_->StartCall();
     call_->Finish(&response_buf_, &status_, this);
+    begin_in_nano_ = absl::GetCurrentTimeNanos();
   }
 
   void OnCompleted(bool ok) override {
@@ -206,7 +207,10 @@ class RPCState : public GrpcClientCQTag {
 
     LOG(INFO) << "Call completed: " << method_
               << " req size: " << request_buf_.Length()
-              << " resp size: " << response_buf_.Length();
+              << " resp size: " << response_buf_.Length() << " Time: "
+              << (float)(absl::GetCurrentTimeNanos() - begin_in_nano_) / 1000 /
+                     1000
+              << " ms";
     done_(s);
     delete this;
   }
@@ -244,6 +248,8 @@ class RPCState : public GrpcClientCQTag {
   ::grpc::string method_;
   bool fail_fast_;
   const string* target_;
+
+  int64_t begin_in_nano_;
 };
 
 // Represents state associated with one streaming RPC call.

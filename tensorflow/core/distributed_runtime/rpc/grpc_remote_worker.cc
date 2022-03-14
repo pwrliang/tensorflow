@@ -127,6 +127,7 @@ class GrpcRemoteWorker : public WorkerInterface {
     IssueRequest(request, response, cleanupall_, std::move(done));
   }
 
+  // This is client side
   void RecvBufAsync(CallOptions* call_opts, const RecvBufRequest* request,
                     RecvBufResponse* response, StatusCallback done) override {
     int64_t start_usec = Env::Default()->NowMicros();
@@ -173,7 +174,8 @@ class GrpcRemoteWorker : public WorkerInterface {
       }
       done(s);
     };
-
+    LOG(INFO) << "Client Call RecvBufAsync request_id: "
+              << request->request_id() << " step_id: " << request->step_id();
     IssueRequest(request, response, recvbuf_, callback, call_opts);
   }
 

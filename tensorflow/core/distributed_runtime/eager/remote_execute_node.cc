@@ -74,7 +74,7 @@ void RemoteExecuteNode::RunAsync(StatusCallback done) {
   for (auto handle : retvals) {
     handle->Ref();
   }
-
+  LOG(INFO) << "StreamingEnqueueAsync";
   eager_client_->StreamingEnqueueAsync(
       call_opts.get(), request_.get(), response.get(),
       [inputs, retvals, call_opts, response, device,

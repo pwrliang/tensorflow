@@ -331,6 +331,8 @@ void BaseCollectiveExecutor::ExecuteAsync(OpKernelContext* ctx,
   // starve executor threads.
   col_impl->Ref();
   profiler::TraceMeProducer producer("BaseCollectiveExecutor::ExecuteAsync");
+//  LOG(INFO) << "RunClosure Begin";
+
   RunClosure([col_impl, col_ctx, done_safe, ctx,
               context_id = producer.GetContextId()]() {
     core::ScopedUnref unref(col_impl);
@@ -348,6 +350,7 @@ void BaseCollectiveExecutor::ExecuteAsync(OpKernelContext* ctx,
       done_safe(s);
     });
   });
+  LOG(INFO) << "RunClosure End";
 }
 
 void BaseCollectiveExecutor::CompleteParamsAsync(

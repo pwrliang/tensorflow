@@ -111,6 +111,15 @@ void CollectiveRemoteAccessDistributed::RecvFromPeer(
     const AllocatorAttributes& to_alloc_attr, Tensor* to_tensor,
     const DeviceLocality& client_locality, int dev_to_dev_stream_index,
     CancellationManager* cancellation_manager, const StatusCallback& done) {
+//  LOG(INFO) << "Client call RecvFromPeer peer_device: " << peer_device
+//            << "peer_task: " << peer_task
+//            << " peer_is_local: " << peer_is_local << " key: " << key;
+  //  int i = 1;
+//  while(i) {
+//    LOG(INFO) << getpid()
+//              << " is waiting to attach , tid: " << std::this_thread::get_id();
+//    sleep(1);
+//  }
   if (peer_is_local) {
     CollectiveRemoteAccessLocal::RecvFromPeer(
         peer_device, peer_task, peer_is_local, key, to_device, to_device_ctx,

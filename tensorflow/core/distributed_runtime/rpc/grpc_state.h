@@ -112,7 +112,6 @@ class RPCState : public GrpcClientCQTag {
     if (absl::SimpleAtoi(std::getenv("TF_CPP_GRPC_TIMEOUT"), &timeout_in_s)) {
       timeout_in_ms_ = timeout_in_s * 1000;
     }
-//    LOG(INFO) << "new RPCState, method: " << method_;
     StartCall();
   }
 
@@ -127,10 +126,7 @@ class RPCState : public GrpcClientCQTag {
       call_opts_->SetCancelCallback([this]() { context_->TryCancel(); });
     }
 
-    LOG(INFO) << "Starting call: " << method_
-              << " Req size: " << request_buf_.Length()
-              << " fail_fast: " << fail_fast_
-              << " timeout_in_ms: " << timeout_in_ms_;
+    VLOG(2) << "Starting call: " << method_;
 
     call_ = stub_->PrepareUnaryCall(context_.get(), method_, request_buf_, cq_);
     call_->StartCall();
@@ -143,7 +139,7 @@ class RPCState : public GrpcClientCQTag {
       call_opts_->ClearCancelCallback();
     }
 
-    LOG(INFO) << "OnCompleted call: " << method_ << " ok: " << ok;
+    VLOG(2) << "Completed call: " << method_;
 
     Status s = FromGrpcStatus(status_);
     if (s.ok() && !ok) {
@@ -444,13 +440,13 @@ class StreamingRPCState : public UntypedStreamingRPCState {
       const std::shared_ptr<::grpc::ClientContext>& context)
       : context_(context), call_(std::move(call)), call_state_(State::kActive) {
     Ref();
-    LOG(INFO) << "Created new StreamingRPCState " << this;
-    LOG(INFO) << "StreamingRPCState(" << this << ") calling grpc::StartCall";
+    VLOG(3) << "Created new StreamingRPCState " << this;
+    VLOG(3) << "StreamingRPCState(" << this << ") calling grpc::StartCall";
     call_->StartCall(&call_started_tag_);
   }
 
   ~StreamingRPCState() override {
-    LOG(INFO) << "Destructing StreamingRPCState " << this;
+    VLOG(3) << "Destructing StreamingRPCState " << this;
   }
 
   // Attempts to send the next request. `done` is invoked when
@@ -491,7 +487,7 @@ class StreamingRPCState : public UntypedStreamingRPCState {
   }
 
   void CallStarted(bool ok) override {
-    LOG(INFO) << "StreamingRPCState(" << this << ")::CallStarted(ok=" << ok
+    VLOG(3) << "StreamingRPCState(" << this << ")::CallStarted(ok=" << ok
             << ")";
     mutex_lock l(mu_);
     if (!ok) {
@@ -504,7 +500,7 @@ class StreamingRPCState : public UntypedStreamingRPCState {
   }
 
   void RequestWriteCompleted(bool ok) override {
-    LOG(INFO) << "StreamingRPCState(" << this
+    VLOG(3) << "StreamingRPCState(" << this
             << ")::RequestWriteCompleted(ok=" << ok << ")";
     mu_.lock();
     if (call_state_ != State::kActive) {
@@ -526,7 +522,7 @@ class StreamingRPCState : public UntypedStreamingRPCState {
   }
 
   void ResponseReadCompleted(bool ok) override {
-    LOG(INFO) << "StreamingRPCState(" << this
+    VLOG(3) << "StreamingRPCState(" << this
             << ")::ResponseReadCompleted(ok=" << ok << ")";
     mu_.lock();
     if (call_state_ != State::kActive) {
@@ -558,7 +554,7 @@ class StreamingRPCState : public UntypedStreamingRPCState {
   }
 
   void CallFinished(bool ok) override {
-    LOG(INFO) << "StreamingRPCState(" << this << ")::CallFinished(ok=" << ok
+    VLOG(3) << "StreamingRPCState(" << this << ")::CallFinished(ok=" << ok
             << ")";
     mu_.lock();
     DCHECK(call_state_ != State::kActive);
@@ -614,7 +610,7 @@ class StreamingRPCState : public UntypedStreamingRPCState {
     }
     exchange->MarkRequestWriteIssued();
     Ref();
-    LOG(INFO) << "StreamingRPCState(" << this << ") calling grpc::Write";
+    VLOG(3) << "StreamingRPCState(" << this << ") calling grpc::Write";
     call_->Write(exchange->request_buf(), &request_write_completed_tag_);
   }
 
@@ -625,14 +621,14 @@ class StreamingRPCState : public UntypedStreamingRPCState {
     }
     exchange->MarkResponseReadIssued();
     Ref();
-    LOG(INFO) << "StreamingRPCState(" << this << ") calling grpc::Read";
+    VLOG(3) << "StreamingRPCState(" << this << ") calling grpc::Read";
     call_->Read(exchange->response_buf(), &response_read_completed_tag_);
   }
 
   void IssueCallFinishLocked() TF_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     call_state_ = State::kFinishing;
     Ref();
-    LOG(INFO) << "StreamingRPCState(" << this << ") calling grpc::Finish";
+    VLOG(3) << "StreamingRPCState(" << this << ") calling grpc::Finish";
     // We call finish in response to completed (with error) response reading tag
     // on some exchange. We let this exchange hang in ResponseReadIssued state.
     // ExchangeQueue makes sure that there is at most one exchange in this

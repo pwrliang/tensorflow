@@ -284,13 +284,10 @@ class GrpcWorkerServiceThread {
     EnqueueRecvTensorRequestRaw();
   }
 
-  // This is server side
   void RecvBufHandler(WorkerCall<RecvBufRequest, RecvBufResponse>* call) {
     Schedule([this, call]() {
       CallOptions* call_opts = new CallOptions;
       call->SetCancelCallback([call_opts]() { call_opts->StartCancel(); });
-      // Call GRPCWorker.RecvBufAsync
-//      LOG(INFO) << "Serving RecvBufAsync";
       worker_->RecvBufAsync(call_opts, &call->request, &call->response,
                             [call, call_opts](const Status& s) {
                               call->ClearCancelCallback();
@@ -302,7 +299,6 @@ class GrpcWorkerServiceThread {
                               call->SendResponse(ToGrpcStatus(s));
                             });
     });
-    // Server request async service: RequestAsyncUnary
     ENQUEUE_REQUEST(RecvBuf, true);
   }
 
@@ -597,8 +593,6 @@ void GrpcWorker::RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
                               RecvBufResponse* response, StatusCallback done) {
   const int64_t request_id = request->request_id();
   const int64_t step_id = request->step_id();
-  LOG(INFO) << "Server response RecvBufAsync, request_id: " << request_id
-            << " step_id: " << step_id;
   bool cache_enabled = (response_cache_ != nullptr && request_id != 0);
 
   auto do_response = [this, response, done, cache_enabled](

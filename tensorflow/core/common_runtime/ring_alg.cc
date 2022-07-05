@@ -354,14 +354,13 @@ void RingAlg::InitRingField(RingField* rf, int chunk_idx, int subdiv_idx,
     rf->do_send =
         (rf->rank != ((rf->chunk_idx + (group_size_ - 1)) % group_size_));
   }
-//  LOG(INFO) << "ca_->ChunkBytes(rf->sc_idx): " << ca_->ChunkBytes(rf->sc_idx);
   rf->is_final =
       (rf->rank == ((rf->chunk_idx + (group_size_ - 1)) % group_size_));
   if (rf->do_send || rf->do_recv) {
     rf->chunk = ca_->ChunkAlias(rf->sc_idx);
   }
-//  LOG(INFO) << this << " InitRingField " << rf->DebugString() << " chunk "
-//          << ca_->TBounds(rf->chunk);
+  VLOG(2) << this << " InitRingField " << rf->DebugString() << " chunk "
+          << ca_->TBounds(rf->chunk);
 }
 
 // When a RingField transitions from first to second recompute the
@@ -418,9 +417,9 @@ void RingAlg::DispatchRecv(RingField* rf, const StatusCallback& done) {
   string recv_buf_key =
       RingAlgBufKey(name_, col_ctx_->exec_key, rf->second_pass, rf->sc_idx,
                     (rf->rank + (group_size_ - 1)) % group_size_);
-//  LOG(INFO) << "DispatchRecv rank=" << col_params_->default_rank << " recv key "
-//          << recv_buf_key << " chunk " << ca_->TBounds(rf->chunk) << " into "
-//          << ((col_params_->merge_op != nullptr) ? "tmp_chunk" : "chunk");
+  VLOG(3) << "DispatchRecv rank=" << col_params_->default_rank << " recv key "
+          << recv_buf_key << " chunk " << ca_->TBounds(rf->chunk) << " into "
+          << ((col_params_->merge_op != nullptr) ? "tmp_chunk" : "chunk");
   Tensor* dst_tensor = (!rf->second_pass && (col_params_->merge_op != nullptr))
                            ? &rf->tmp_chunk
                            : &rf->chunk;

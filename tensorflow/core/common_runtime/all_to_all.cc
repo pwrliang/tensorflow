@@ -136,7 +136,6 @@ void AllToAll::DispatchRecv(int src_rank, int target_rank, Tensor* tensor,
                             const StatusCallback& done) {
   string recv_buf_key =
       strings::StrCat(col_ctx_->exec_key, src_rank, target_rank);
-  LOG(INFO) << "AllToAll::DispatchRecv";
   col_ctx_->col_exec->remote_access()->RecvFromPeer(
       col_params_->group.members[src_rank].device.name(),
       col_params_->group.members[src_rank].task,

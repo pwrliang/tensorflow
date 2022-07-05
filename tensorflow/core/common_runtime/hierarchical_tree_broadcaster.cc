@@ -433,12 +433,11 @@ void HierarchicalTreeBroadcaster::DispatchSend(int subdiv, int dst_rank,
 void HierarchicalTreeBroadcaster::DispatchRecv(int subdiv, int src_rank,
                                                int dst_rank, Tensor* dst_tensor,
                                                const StatusCallback& done) {
-  LOG(INFO) << "HierarchicalTreeBroadcaster::DispatchRecv";
   string recv_buf_key =
       BroadcastBufKey(col_ctx_->exec_key, subdiv, src_rank, dst_rank);
   int src_idx =
       col_params_->instance.impl_details.subdiv_permutations[subdiv][src_rank];
-  LOG(INFO) << "DispatchRecv " << recv_buf_key << " from_device "
+  VLOG(3) << "DispatchRecv " << recv_buf_key << " from_device "
           << col_params_->group.members[src_idx].device.name() << " to_device "
           << col_ctx_->device_name << " subdiv=" << subdiv
           << " src_rank=" << src_rank << " src_idx=" << src_idx;

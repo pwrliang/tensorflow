@@ -183,7 +183,6 @@ bool RingGatherer::RunAsyncParts() {
         }
         switch (rf->action) {
           case RF_INIT:
-            LOG(INFO) << "Gather, RF_INIT, do_recv: " << rf->do_recv;
             if (rf->do_recv) {
               rf->action = RF_RECV;
               auto requeue = [this, rf, &ready_queue, &aborted](Status s) {

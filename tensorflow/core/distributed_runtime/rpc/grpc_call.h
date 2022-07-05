@@ -173,8 +173,6 @@ class Call : public UntypedCall<Service> {
   }
 
   void SendResponse(::grpc::Status status) {
-//    LOG(INFO) << "Server is responsing " << typeid(RequestMessage).name()
-//              << " Service: " << typeid(Service).name();
     this->Ref();  // Ref for grpc; released in Tag callback.
     responder_.Finish(response, status, &response_sent_tag_);
     this->Unref();
@@ -238,7 +236,7 @@ class Call : public UntypedCall<Service> {
     if (supports_cancel) {
       call->RegisterCancellationHandler();
     }
-//    LOG(INFO) << "Server RequestAsyncUnary, method id: " << method_id;
+
     // Initial ref for call handed to grpc; released in Tag callback.
     grpc_service->RequestAsyncUnary(method_id, &call->ctx_, &call->request,
                                     &call->responder_, cq, cq,

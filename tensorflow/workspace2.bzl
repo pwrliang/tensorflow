@@ -521,7 +521,7 @@ def _tf_repositories():
     git_repository(
         name = "com_github_grpc_grpc",
         # branch = "tf1.38.0",
-        commit = "0f5982566f93080edb74fe77d119cdd236b4b1e3",
+        commit = "78d2ad4e2334e49d89e9cc0d07c8ddc58a7229ad",
         init_submodules = True,
         recursive_init_submodules = True,
         remote = "git@github.com:hwang121/grpc-rdma.git",

@@ -53,11 +53,6 @@ Status RingReducer::InitializeCollectiveParams(CollectiveParams* col_params) {
 }
 
 void RingReducer::Run(StatusCallback done) {
-//  while (1) {
-//    LOG(INFO) << "Waiting";
-//    sleep(1);
-//  }
-//  LOG(INFO) << "RingReducer::Run";
   CHECK(col_ctx_);
   CHECK(col_params_);
   // Since `RingReducer` doesn't require non-overlapping collectives, unblock
@@ -70,7 +65,7 @@ void RingReducer::Run(StatusCallback done) {
       col_params_->instance.impl_details.subdiv_permutations.size());
   CHECK_GT(num_subdivs_, 0);
 
-  if (true) {
+  if (VLOG_IS_ON(1)) {
     string buf;
     for (int r = 0; r < col_params_->group.members.size(); ++r) {
       strings::StrAppend(&buf, "dev ", r, " : ",
@@ -85,9 +80,9 @@ void RingReducer::Run(StatusCallback done) {
         strings::StrAppend(&buf, x, ", ");
       }
     }
-//    LOG(INFO) << "RingReducer::Run for device " << col_ctx_->device_name
-//            << " default_rank " << col_params_->default_rank << "\n"
-//            << buf;
+    VLOG(1) << "RingReducer::Run for device " << col_ctx_->device_name
+            << " default_rank " << col_params_->default_rank << "\n"
+            << buf;
   }
 
   // Start by copying input to output if they're not already the same, i.e. if
@@ -110,7 +105,6 @@ void RingReducer::Run(StatusCallback done) {
           note.Notify();
         });
     note.WaitForNotification();
-    LOG(INFO) << "Status: " << status.ok();
     if (!status.ok()) {
       done_(status);
       return;
@@ -122,7 +116,6 @@ void RingReducer::Run(StatusCallback done) {
 // Note that this function is blocking and must not run in any thread
 // which cannot be blocked.
 void RingReducer::ContinueAfterInputCopy() {
-  LOG(INFO) << "ContinueAfterInputCopy";
   AllocatorAttributes attr = col_ctx_->op_ctx->output_alloc_attr(0);
   ca_.reset(MakeCollectiveAdapter(col_ctx_->output, group_size_ * num_subdivs_,
                                   col_ctx_->device->GetAllocator(attr)));
@@ -187,8 +180,6 @@ bool RingReducer::RunAsyncParts() {
   rfv_.clear();
   rfv_.resize(group_size_ * num_subdivs_);
   PCQueue ready_queue;
-  LOG(INFO) << "RunAsyncParts, group_size: " << group_size_
-            << " num_subdivs: " << num_subdivs_;
   for (int chunk_idx = 0; chunk_idx < group_size_; ++chunk_idx) {
     for (int subdiv_idx = 0; subdiv_idx < num_subdivs_; ++subdiv_idx) {
       int rf_index = (chunk_idx * num_subdivs_) + subdiv_idx;
@@ -242,7 +233,6 @@ bool RingReducer::RunAsyncParts() {
         }
         switch (rf->action) {
           case RF_INIT:
-//            LOG(INFO) << "Reducer, RF_INIT, do_recv: " << rf->do_recv;
             if (rf->do_recv) {
               rf->action = RF_RECV;
               auto requeue = [this, rf, &ready_queue, &aborted](Status s) {

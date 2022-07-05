@@ -813,7 +813,6 @@ Status EagerContext::MaybeRegisterFunctionRemotely(const FunctionDef& fdef) {
     TF_RETURN_IF_ERROR(GetClient(target, &eager_client));
 
     eager::EnqueueResponse* response = new eager::EnqueueResponse();
-    LOG(INFO) << "StreamingEnqueueAsync";
     eager_client->StreamingEnqueueAsync(
         /*call_opts=*/nullptr, request.get(), response,
         [request, response](const Status& status) {
@@ -858,7 +857,6 @@ Status EagerContext::RegisterExistingFunctionsOnRemoteWorkers(
     }
     for (int i = 0; i < requests.size(); i++) {
       auto response = std::make_shared<eager::EnqueueResponse>();
-      LOG(INFO) << "StreamingEnqueueAsync";
       eager_client->StreamingEnqueueAsync(
           /*call_opts=*/nullptr, requests[i].get(), response.get(),
           [request = requests[i], response](const Status& s) {
@@ -998,7 +996,6 @@ Status EagerContext::SyncExecutors() {
     TF_RETURN_IF_ERROR(GetClient(target, &eager_client));
 
     eager::EnqueueResponse* response = new eager::EnqueueResponse();
-    LOG(INFO) << "StreamingEnqueueAsync";
     eager_client->StreamingEnqueueAsync(
         /*call_opts=*/nullptr, &request, response,
         [response, target, &counter, &s = statuses[i]](const Status& status) {

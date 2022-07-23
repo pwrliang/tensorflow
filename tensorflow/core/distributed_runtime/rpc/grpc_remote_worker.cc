@@ -154,9 +154,9 @@ class GrpcRemoteWorker : public WorkerInterface {
             send_start_usec = std::min(send_start_usec, end_usec - 1);
           }
           const string& key = request->buf_rendezvous_key();
-          LOG(INFO) << "RecvBufAsync, size: " << num_bytes
-                    << " time: " << (float)(end_usec - send_start_usec) / 1000
-                    << " ms";
+//          LOG(INFO) << "RecvBufAsync, size: " << num_bytes
+//                    << " time: " << (float)(end_usec - send_start_usec) / 1000
+//                    << " ms";
 
           logger_->RecordDataTransfer(
               step_id, send_start_usec, end_usec, key, request->src_device(),

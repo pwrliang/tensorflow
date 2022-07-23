@@ -205,12 +205,12 @@ class RPCState : public GrpcClientCQTag {
       s.Update(errors::Internal("could not parse rpc response"));
     }
 
-    LOG(INFO) << "Call completed: " << method_
-              << " req size: " << request_buf_.Length()
-              << " resp size: " << response_buf_.Length() << " Time: "
-              << (float)(absl::GetCurrentTimeNanos() - begin_in_nano_) / 1000 /
-                     1000
-              << " ms";
+//    LOG(INFO) << "Call completed: " << method_
+//              << " req size: " << request_buf_.Length()
+//              << " resp size: " << response_buf_.Length() << " Time: "
+//              << (float)(absl::GetCurrentTimeNanos() - begin_in_nano_) / 1000 /
+//                     1000
+//              << " ms";
     done_(s);
     delete this;
   }

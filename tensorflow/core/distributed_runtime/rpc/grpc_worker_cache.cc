@@ -139,9 +139,16 @@ GrpcWorkerEnv::GrpcWorkerCacheThread::GrpcWorkerCacheThread() {
       ThreadOptions(), "GrpcWorkerEnvPool", [this]() {
         void* tag;
         bool ok;
-        while (completion_queue_.Next(&tag, &ok)) {
-          GrpcClientCQTag* callback_tag = static_cast<GrpcClientCQTag*>(tag);
-          callback_tag->OnCompleted(ok);
+        while (true) {
+          auto rpc_begin_time = absl::Now();
+          if(completion_queue_.Next(&tag, &ok)) {
+            GrpcClientCQTag* callback_tag = static_cast<GrpcClientCQTag*>(tag);
+            callback_tag->rpc_begin_time = rpc_begin_time;
+            callback_tag->rpc_end_time = absl::Now();
+            callback_tag->OnCompleted(ok);
+          }else {
+            break;
+          }
         }
       }));
 }

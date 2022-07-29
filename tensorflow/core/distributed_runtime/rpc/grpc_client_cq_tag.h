@@ -34,6 +34,8 @@ class GrpcClientCQTag {
   // Implementations of OnCompleted can delete *this.
   virtual void OnCompleted(bool ok) = 0;
 
+  absl::Time rpc_begin_time;
+  absl::Time rpc_end_time;
  private:
   TF_DISALLOW_COPY_AND_ASSIGN(GrpcClientCQTag);
 };

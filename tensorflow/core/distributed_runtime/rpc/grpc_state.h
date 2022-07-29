@@ -131,10 +131,12 @@ class RPCState : public GrpcClientCQTag {
     call_ = stub_->PrepareUnaryCall(context_.get(), method_, request_buf_, cq_);
     call_->StartCall();
     call_->Finish(&response_buf_, &status_, this);
-    begin_in_nano_ = absl::GetCurrentTimeNanos();
+    begin_time_ = absl::Now();
   }
 
   void OnCompleted(bool ok) override {
+    rpc_time_ms_ = ToDoubleMilliseconds(absl::Now() - begin_time_);
+
     if (call_opts_) {
       call_opts_->ClearCancelCallback();
     }
@@ -142,6 +144,7 @@ class RPCState : public GrpcClientCQTag {
     VLOG(2) << "Completed call: " << method_;
 
     Status s = FromGrpcStatus(status_);
+    s.set_rpc_time_ms(rpc_time_ms_);
     if (s.ok() && !ok) {
       // Since this function is only being used for processing the response
       // to Finish for client-side unary calls, ok should never be false
@@ -201,16 +204,17 @@ class RPCState : public GrpcClientCQTag {
 
   void ParseAndCallDone() {
     Status s;
+    s.set_rpc_time_ms(rpc_time_ms_);
     if (!GrpcMaybeParseProto(&response_buf_, response_)) {
       s.Update(errors::Internal("could not parse rpc response"));
     }
-
-//    LOG(INFO) << "Call completed: " << method_
-//              << " req size: " << request_buf_.Length()
-//              << " resp size: " << response_buf_.Length() << " Time: "
-//              << (float)(absl::GetCurrentTimeNanos() - begin_in_nano_) / 1000 /
-//                     1000
-//              << " ms";
+    //    LOG(INFO) << "Call completed: " << method_
+    //              << " req size: " << request_buf_.Length()
+    //              << " resp size: " << response_buf_.Length() << " Time: "
+    //              << (float)(absl::GetCurrentTimeNanos() - begin_in_nano_) /
+    //              1000 /
+    //                     1000
+    //              << " ms";
     done_(s);
     delete this;
   }
@@ -249,7 +253,8 @@ class RPCState : public GrpcClientCQTag {
   bool fail_fast_;
   const string* target_;
 
-  int64_t begin_in_nano_;
+  absl::Time begin_time_;
+  double rpc_time_ms_;
 };
 
 // Represents state associated with one streaming RPC call.

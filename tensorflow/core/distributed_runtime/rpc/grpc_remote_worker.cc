@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "tensorflow/core/distributed_runtime/rpc/grpc_remote_worker.h"
 
+#include <iomanip>
 #include <utility>
 
 #include "grpcpp/generic/generic_stub.h"
@@ -39,6 +40,79 @@ limitations under the License.
 #include "tensorflow/core/util/env_var.h"
 
 namespace tensorflow {
+
+class CommProfiler {
+  CommProfiler() {
+    print_th_ = std::thread([this]() {
+      int print_interval = 5;
+      int timeout_in_s;
+
+      if (absl::SimpleAtoi(std::getenv("TF_COMM_PRINT_TIME"), &timeout_in_s)) {
+        print_interval = timeout_in_s;
+      }
+
+      LOG(INFO) << "Print interval: " << print_interval << " s";
+      int batch = 0;
+
+      while (print_) {
+        {
+          std::lock_guard<std::mutex> lg(mutex_);
+          for (auto& kv : comm_time_) {
+            auto& v = kv.second;
+
+            LOG(INFO) << std::fixed << std::setprecision(2) << "Iter: " << batch
+                      << ", Thread: " << kv.first << ", Comm count: " << v.count
+                      << ", Comm size: " << v.size_bytes / 1024.0 / 1024.0
+                      << " MB, RPC Time: " << v.rpc_time_ms / 1000
+                      << " s, Exec Time: " << v.exec_time_ms / 1000
+                      << " s, Comm Time: "
+                      << (v.rpc_time_ms - v.exec_time_ms) / 1000
+                      << " s, Comm size(Win=" << print_interval << "): "
+                      << (v.size_bytes - v.last_size_bytes) / 1024.0 / 1024.0
+                      << " MB";
+            v.last_size_bytes = v.size_bytes;
+          }
+        }
+
+        sleep(print_interval);
+        batch++;
+      }
+    });
+  }
+
+ public:
+  ~CommProfiler() {
+    print_ = false;
+    print_th_.join();
+  }
+
+  static CommProfiler& GetInstance() {
+    static CommProfiler inst;
+    return inst;
+  }
+
+  // Support for profiling
+  struct comm_time {
+    double rpc_time_ms;
+    double exec_time_ms;
+    uint64_t size_bytes;
+    uint64_t last_size_bytes;
+    uint32_t count;
+
+    comm_time() {
+      rpc_time_ms = 0;
+      exec_time_ms = 0;
+      size_bytes = 0;
+      last_size_bytes = 0;
+      count = 0;
+    }
+  };
+
+  std::mutex mutex_;
+  std::map<std::thread::id, comm_time> comm_time_;
+  std::thread print_th_;
+  bool print_ = true;
+};
 
 class GrpcRemoteWorker : public WorkerInterface {
  public:
@@ -156,8 +230,20 @@ class GrpcRemoteWorker : public WorkerInterface {
           const string& key = request->buf_rendezvous_key();
 //          LOG(INFO) << "RecvBufAsync, size: " << num_bytes
 //                    << " time: " << (float)(end_usec - send_start_usec) / 1000
+//                    << " ms"
+//                    << " RPC time: " << s.get_rpc_time_ms() << " ms"
+//                    << " Exec time: " << response->exec_time_micros() / 1000
 //                    << " ms";
+          {
+            auto& profiler = CommProfiler::GetInstance();
+            std::lock_guard<std::mutex> lg_(profiler.mutex_);
+            auto& entry = profiler.comm_time_[std::this_thread::get_id()];
 
+            entry.rpc_time_ms += s.get_rpc_time_ms();
+            entry.exec_time_ms += response->exec_time_micros() / 1000.0;
+            entry.size_bytes += num_bytes;
+            entry.count++;
+          }
           logger_->RecordDataTransfer(
               step_id, send_start_usec, end_usec, key, request->src_device(),
               request->dst_device(), num_bytes, "", "RecvBuf");

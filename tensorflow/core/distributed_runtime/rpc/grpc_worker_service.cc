@@ -20,9 +20,9 @@ limitations under the License.
 #include <unordered_map>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "grpcpp/alarm.h"
 #include "grpcpp/server_builder.h"
-#include "absl/container/flat_hash_map.h"
 #include "tensorflow/core/common_runtime/buf_rendezvous.h"
 #include "tensorflow/core/common_runtime/copy_tensor.h"
 #include "tensorflow/core/common_runtime/device.h"
@@ -594,8 +594,9 @@ void GrpcWorker::RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
   const int64_t request_id = request->request_id();
   const int64_t step_id = request->step_id();
   bool cache_enabled = (response_cache_ != nullptr && request_id != 0);
+  auto rpc_begin = absl::Now();
 
-  auto do_response = [this, response, done, cache_enabled](
+  auto do_response = [this, response, done, cache_enabled, rpc_begin](
                          const Tensor& tensor, bool is_dead,
                          const Status& status) {
     if (status.ok()) {
@@ -603,6 +604,8 @@ void GrpcWorker::RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
     }
     response->set_send_start_micros(env_->env->NowMicros());
     response->set_require_ack(cache_enabled);
+    response->set_exec_time_micros(
+        ToInt64Microseconds(absl::Now() - rpc_begin));
     done(status);
   };
 

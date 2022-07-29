@@ -534,6 +534,8 @@ message RecvBufResponse {
   // Whether the receiver should send a MarkRecvFinishedRequest to the sender
   // to ack the message.
   bool require_ack = 6;
+
+  int64 exec_time_micros = 7;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

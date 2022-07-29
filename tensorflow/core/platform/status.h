@@ -23,6 +23,7 @@ limitations under the License.
 #include <string>
 #include <unordered_map>
 
+#include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/macros.h"
@@ -173,6 +174,10 @@ class Status {
       const std::function<void(tensorflow::StringPiece,
                                tensorflow::StringPiece)>& visitor) const;
 
+  void set_rpc_time_ms(double rpc_time_ms) { rpc_time_ms_ = rpc_time_ms; }
+
+  double get_rpc_time_ms() const { return rpc_time_ms_; }
+
  private:
   static const std::string& empty_string();
   static const std::vector<StackFrame>& empty_stack_trace();
@@ -186,6 +191,7 @@ class Status {
   // OK status has a `NULL` state_.  Otherwise, `state_` points to
   // a `State` structure containing the error code and message(s)
   std::unique_ptr<State> state_;
+  double rpc_time_ms_;
 
   void SlowCopyFrom(const State* src);
 };
@@ -248,7 +254,9 @@ class StatusGroup {
 };
 
 inline Status::Status(const Status& s)
-    : state_((s.state_ == nullptr) ? nullptr : new State(*s.state_)) {}
+    : state_((s.state_ == nullptr) ? nullptr : new State(*s.state_)) {
+  rpc_time_ms_ = s.rpc_time_ms_;
+}
 
 inline Status& Status::operator=(const Status& s) {
   // The following condition catches both aliasing (when this == &s),
@@ -256,15 +264,18 @@ inline Status& Status::operator=(const Status& s) {
   if (state_ != s.state_) {
     SlowCopyFrom(s.state_.get());
   }
+  rpc_time_ms_ = s.rpc_time_ms_;
   return *this;
 }
 
 #ifndef SWIG
-inline Status::Status(Status&& s) noexcept : state_(std::move(s.state_)) {}
+inline Status::Status(Status&& s) noexcept
+    : state_(std::move(s.state_)), rpc_time_ms_(s.rpc_time_ms_) {}
 
 inline Status& Status::operator=(Status&& s) noexcept {
   if (state_ != s.state_) {
     state_ = std::move(s.state_);
+    rpc_time_ms_ = s.rpc_time_ms_;
   }
   return *this;
 }

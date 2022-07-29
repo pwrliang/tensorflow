@@ -66,8 +66,11 @@ class CommProfiler {
                       << " MB, RPC Time: " << v.rpc_time_ms / 1000
                       << " s, Exec Time: " << v.exec_time_ms / 1000
                       << " s, Comm Time: "
-                      << (v.rpc_time_ms - v.exec_time_ms) / 1000
-                      << " s, Comm size(Win=" << print_interval << "): "
+                      << (v.rpc_time_ms - v.exec_time_ms) / 1000 << "s, BD: "
+                      << (v.size_bytes / 1024.0 / 1024.0) /
+                             ((v.rpc_time_ms - v.exec_time_ms) / 1000)
+                      << " MB/s"
+                      << ", Comm size(Win=" << print_interval << "): "
                       << (v.size_bytes - v.last_size_bytes) / 1024.0 / 1024.0
                       << " MB";
             v.last_size_bytes = v.size_bytes;
@@ -228,12 +231,14 @@ class GrpcRemoteWorker : public WorkerInterface {
             send_start_usec = std::min(send_start_usec, end_usec - 1);
           }
           const string& key = request->buf_rendezvous_key();
-//          LOG(INFO) << "RecvBufAsync, size: " << num_bytes
-//                    << " time: " << (float)(end_usec - send_start_usec) / 1000
-//                    << " ms"
-//                    << " RPC time: " << s.get_rpc_time_ms() << " ms"
-//                    << " Exec time: " << response->exec_time_micros() / 1000
-//                    << " ms";
+          //          LOG(INFO) << "RecvBufAsync, size: " << num_bytes
+          //                    << " time: " << (float)(end_usec -
+          //                    send_start_usec) / 1000
+          //                    << " ms"
+          //                    << " RPC time: " << s.get_rpc_time_ms() << " ms"
+          //                    << " Exec time: " <<
+          //                    response->exec_time_micros() / 1000
+          //                    << " ms";
           {
             auto& profiler = CommProfiler::GetInstance();
             std::lock_guard<std::mutex> lg_(profiler.mutex_);

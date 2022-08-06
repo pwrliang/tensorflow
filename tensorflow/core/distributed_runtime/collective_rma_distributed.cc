@@ -15,7 +15,7 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/collective_rma_distributed.h"
 
 #include <memory>
-
+#include "grpcpp/stats_time.h"
 #include "tensorflow/core/common_runtime/base_collective_executor.h"
 #include "tensorflow/core/common_runtime/copy_tensor.h"
 #include "tensorflow/core/common_runtime/device_mgr.h"
@@ -89,7 +89,12 @@ Status PopulateTensorFromResponse(const RecvBufResponse& response,
   const int64_t total_bytes = cpu_tensor->TotalBytes();
   int64_t num_bytes = 0;
   RecvBufRespExtra extra;
-  response.transport_options().UnpackTo(&extra);
+  {
+    grpc_stats_time_init();
+    grpc_stats_time_enable();
+    GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_7);
+    response.transport_options().UnpackTo(&extra);
+  }
   for (const auto& chunk : extra.tensor_content()) {
     num_bytes += chunk.size();
   }

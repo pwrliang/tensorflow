@@ -12,7 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-
+#include "grpcpp/stats_time.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_worker_cache.h"
 
 #include "tensorflow/core/distributed_runtime/rpc/coordination/grpc_coordination_client.h"
@@ -140,6 +140,9 @@ GrpcWorkerEnv::GrpcWorkerCacheThread::GrpcWorkerCacheThread() {
         void* tag;
         bool ok;
         while (true) {
+          grpc_stats_time_init();
+          grpc_stats_time_enable();
+
           auto rpc_begin_time = absl::Now();
           if(completion_queue_.Next(&tag, &ok)) {
             GrpcClientCQTag* callback_tag = static_cast<GrpcClientCQTag*>(tag);

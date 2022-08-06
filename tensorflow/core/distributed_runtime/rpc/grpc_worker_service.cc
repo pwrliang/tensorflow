@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "grpcpp/alarm.h"
 #include "grpcpp/server_builder.h"
+#include "grpcpp/stats_time.h"
 #include "tensorflow/core/common_runtime/buf_rendezvous.h"
 #include "tensorflow/core/common_runtime/copy_tensor.h"
 #include "tensorflow/core/common_runtime/device.h"
@@ -575,9 +576,13 @@ namespace {
 // and remove this function.
 void SetTensorInRecvBufResp(int64_t max_chunk_bytes, const Tensor* tensor,
                             RecvBufResponse* response) {
+  grpc_stats_time_init();
+  grpc_stats_time_enable();
+  GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_6);
   RecvBufRespExtra extra;
   int64_t num_bytes = tensor->TotalBytes();
   const char* head = reinterpret_cast<const char*>(DMAHelper::base(tensor));
+
   while (num_bytes > 0) {
     int64_t bytes =
         max_chunk_bytes > 0 ? std::min(num_bytes, max_chunk_bytes) : num_bytes;

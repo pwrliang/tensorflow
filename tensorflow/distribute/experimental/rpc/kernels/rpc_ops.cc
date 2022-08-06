@@ -20,6 +20,7 @@ limitations under the License.
 #include "grpcpp/channel.h"
 #include "grpcpp/create_channel.h"
 #include "grpcpp/generic/generic_stub.h"
+#include "grpcpp/stats_time.h"
 #include "grpcpp/impl/codegen/client_context.h"
 #include "grpcpp/impl/codegen/server_context.h"
 #include "grpcpp/impl/codegen/status.h"
@@ -368,6 +369,9 @@ class GrpcPollingThread {
         [this]() {
           void* tag;
           bool ok;
+          grpc_stats_time_init();
+          grpc_stats_time_enable();
+
           while (completion_queue_.Next(&tag, &ok)) {
             GrpcClientCQTag* callback_tag = static_cast<GrpcClientCQTag*>(tag);
             callback_tag->OnCompleted(ok);

@@ -17,9 +17,10 @@ limitations under the License.
 
 #include <iomanip>
 #include <utility>
-
+#include <sstream>
 #include "grpcpp/generic/generic_stub.h"
 #include "grpcpp/grpcpp.h"
+#include "grpcpp/stats_time.h"
 #include "tensorflow/core/common_runtime/process_util.h"
 #include "tensorflow/core/distributed_runtime/call_options.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_client_cq_tag.h"
@@ -76,7 +77,9 @@ class CommProfiler {
             v.last_size_bytes = v.size_bytes;
           }
         }
-
+        std::stringstream ss;
+        grpc_stats_time_print(ss);
+        LOG(INFO) << ss.str();
         sleep(print_interval);
         batch++;
       }
@@ -217,7 +220,12 @@ class GrpcRemoteWorker : public WorkerInterface {
           int64_t end_usec = Env::Default()->NowMicros();
           int64_t step_id = request->step_id();
           RecvBufRespExtra extra;
-          response->transport_options().UnpackTo(&extra);
+          {
+            grpc_stats_time_init();
+            grpc_stats_time_enable();
+            GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_8);
+            response->transport_options().UnpackTo(&extra);
+          }
           int64_t num_bytes = 0;
           for (const auto& chunk : extra.tensor_content()) {
             num_bytes += chunk.size();

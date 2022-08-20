@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <memory>
 #include <unordered_map>
+
 #include "grpcpp/server_builder.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_response_cache.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_worker_service_impl.h"
@@ -31,6 +32,7 @@ class ByteBuffer;
 namespace tensorflow {
 
 class AsyncServiceInterface;
+class DataChannelInterface;
 class ConfigProto;
 struct WorkerEnv;
 class WorkerSession;
@@ -51,6 +53,9 @@ class GrpcWorker : public Worker {
 
   void RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
                     RecvBufResponse* response, StatusCallback done) override;
+
+  void RecvBuf(const RecvBufRequest* request, RecvBufResponse* response,
+               std::vector<::grpc::Slice>* slices, StatusCallback done);
 
   void CleanupGraphAsync(const CleanupGraphRequest* request,
                          CleanupGraphResponse* response,
@@ -81,6 +86,9 @@ struct GrpcWorkerServiceOptions {
 std::unique_ptr<AsyncServiceInterface> NewGrpcWorkerService(
     GrpcWorker* worker, ::grpc::ServerBuilder* builder,
     GrpcWorkerServiceOptions opts = GrpcWorkerServiceOptions());
+
+std::unique_ptr<DataChannelInterface> NewGrpcDataChannelService(
+    GrpcWorker* worker, ::grpc::ServerBuilder* builder);
 
 }  // namespace tensorflow
 

@@ -230,14 +230,25 @@ Status GrpcServer::Init(const GrpcServerOptions& opts) {
   // TODO(mrry): Provide a general mechanism for dynamically setting
   // the identities of tasks in the worker pool after the service is
   // running.
-  ::grpc::ServerBuilder builder;
+  ::grpc::ServerBuilder builder, data_channel_builder;
   builder.AddListeningPort(strings::StrCat("0.0.0.0:", requested_port),
                            GetServerCredentials(server_def_), &bound_port_);
   builder.SetMaxMessageSize(std::numeric_limits<int32>::max());
 
+  int64_t data_port;
+  Status status =
+      ReadInt64FromEnvVar("TF_GRPC_DATA_CHANNEL_PORT", 12345, &data_port);
+  if (!status.ok()) {
+    LOG(ERROR) << status.error_message();
+  }
+  data_channel_builder.AddListeningPort(strings::StrCat("0.0.0.0:", data_port),
+                                        ::grpc::InsecureServerCredentials());
+  data_channel_builder.SetMaxMessageSize(std::numeric_limits<int32>::max());
+  data_channel_builder.SetOption(
+      ::grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
+
   bool reuse_port = false;
-  const Status status =
-      ReadBoolFromEnvVar("TF_GRPC_REUSE_PORT", false, &reuse_port);
+  status = ReadBoolFromEnvVar("TF_GRPC_REUSE_PORT", false, &reuse_port);
   if (!status.ok()) {
     LOG(ERROR) << status.error_message();
   }
@@ -256,6 +267,10 @@ Status GrpcServer::Init(const GrpcServerOptions& opts) {
   worker_service_ = NewGrpcWorkerService(worker_impl_.get(), &builder,
                                          opts.worker_service_options)
                         .release();
+  data_channel_service_ =
+      NewGrpcDataChannelService(worker_impl_.get(), &data_channel_builder)
+          .release();
+
   eager_service_ = new eager::GrpcEagerServiceImpl(&worker_env_, &builder);
   thread::ThreadPool* compute_pool = ComputePool(sess_opts);
   coordination_service_ =
@@ -272,8 +287,9 @@ Status GrpcServer::Init(const GrpcServerOptions& opts) {
     opts.service_func(&worker_env_, &builder);
   }
   server_ = builder.BuildAndStart();
+  data_channel_server_ = data_channel_builder.BuildAndStart();
 
-  if (!server_) {
+  if (!server_ || !data_channel_server_) {
     return errors::Unknown("Could not start gRPC server");
   }
   // Create the execution environment for the GRPC workers cache.
@@ -415,6 +431,9 @@ Status GrpcServer::Start() {
       worker_thread_.reset(
           env_->StartThread(ThreadOptions(), "TF_worker_service",
                             [this] { worker_service_->HandleRPCsLoop(); }));
+      data_channel_thread_.reset(env_->StartThread(
+          ThreadOptions(), "TF_data_channel_service",
+          [this] { data_channel_service_->HandleRPCsLoop(); }));
       eager_thread_.reset(
           env_->StartThread(ThreadOptions(), "TF_eager_service",
                             [this] { eager_service_->HandleRPCsLoop(); }));
@@ -523,6 +542,7 @@ Status GrpcServer::Join() {
     case STOPPED:
       master_thread_.reset();
       worker_thread_.reset();
+      data_channel_thread_.reset();
       eager_thread_.reset();
       for (auto& thread : extra_service_threads_) {
         thread.reset();

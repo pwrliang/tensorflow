@@ -26,11 +26,12 @@ namespace tensorflow {
 class WorkerCacheLogger;
 class WorkerInterface;
 
-WorkerInterface* NewGrpcRemoteWorker(SharedGrpcChannelPtr channel,
-                                     ::grpc::CompletionQueue* completion_queue,
-                                     thread::ThreadPool* callback_threadpool,
-                                     WorkerCacheLogger* logger,
-                                     const string& target);
+WorkerInterface* NewGrpcRemoteWorker(
+    SharedGrpcChannelPtr channel, std::shared_ptr<::grpc::Channel> data_channel,
+    ::grpc::CompletionQueue* completion_queue,
+    ::grpc::CompletionQueue* data_channel_completion_queue,
+    thread::ThreadPool* callback_threadpool, WorkerCacheLogger* logger,
+    const string& target);
 
 }  // namespace tensorflow
 

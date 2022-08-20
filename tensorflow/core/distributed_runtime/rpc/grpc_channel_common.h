@@ -69,11 +69,23 @@ class GenericCachingChannelCache : public ChannelCacheT {
     }
   }
 
+  SharedGrpcChannelPtr ChannelToDataChannel(
+      SharedGrpcChannelPtr chan_ptr) override {
+    if (channel_to_data_channel_.find(chan_ptr) ==
+        channel_to_data_channel_.end()) {
+      return nullptr;
+    }
+    return channel_to_data_channel_[chan_ptr];
+  }
+
  protected:
   // Find the ClientChannel for "target".  Only called when no channel was
   // found in the channels_ cache for "target".  A non nullptr result will be
   // cached in channels_.
   virtual SharedGrpcChannelPtr FindChannelOnce(const string& target) = 0;
+
+  absl::flat_hash_map<SharedGrpcChannelPtr, SharedGrpcChannelPtr>
+      channel_to_data_channel_ TF_GUARDED_BY(mu_);
 
  private:
   struct ChannelState {

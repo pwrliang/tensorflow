@@ -15,7 +15,9 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/collective_rma_distributed.h"
 
 #include <memory>
+
 #include "grpcpp/stats_time.h"
+#include "grpcpp/support/byte_buffer.h"
 #include "tensorflow/core/common_runtime/base_collective_executor.h"
 #include "tensorflow/core/common_runtime/copy_tensor.h"
 #include "tensorflow/core/common_runtime/device_mgr.h"
@@ -61,11 +63,13 @@ class RecvBufCall : public CancellableCall {
   ~RecvBufCall() override {}
 
   void IssueCall(const StatusCallback& done) override {
-    wi_->RecvBufAsync(&opts_, &req_, &resp_, done);
+    wi_->RecvBufThroughDataChannel(&opts_, &req_, &resp_,
+                                   static_cast<void*>(&payload_), done);
   }
 
   RecvBufRequest req_;
   RecvBufResponse resp_;
+  ::grpc::ByteBuffer payload_;
 };
 
 void PopulateTensorFromExtra(const RecvBufRespExtra& extra,
@@ -105,6 +109,19 @@ Status PopulateTensorFromResponse(const RecvBufResponse& response,
                             " bytes, expected: ", cpu_tensor->TotalBytes());
   }
   PopulateTensorFromExtra(extra, cpu_tensor);
+  return Status::OK();
+}
+
+Status PopulateTensorFromByteBuffer(const ::grpc::ByteBuffer& payload,
+                                    Tensor* cpu_tensor) {
+  char* head = reinterpret_cast<char*>(DMAHelper::base(cpu_tensor));
+  std::vector<::grpc::Slice> slices;
+
+  payload.Dump(&slices);
+  for (auto& slice : slices) {
+    memcpy(head, slice.begin(), slice.size());
+    head += slice.size();
+  }
   return Status::OK();
 }
 
@@ -189,7 +206,7 @@ void CollectiveRemoteAccessDistributed::RecvFromPeer(
           // points to a tmp CPU buffer and needs to be copied over to
           // to_tensor.
           Status status =
-              PopulateTensorFromResponse(state->call->resp_, dst_tensor);
+              PopulateTensorFromByteBuffer(state->call->payload_, dst_tensor);
           if (!status.ok()) {
             done(status);
             delete state;

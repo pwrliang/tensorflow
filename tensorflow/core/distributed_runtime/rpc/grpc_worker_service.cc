@@ -22,6 +22,8 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "grpcpp/alarm.h"
+#include "grpcpp/completion_queue.h"
+#include "grpcpp/generic/async_generic_service.h"
 #include "grpcpp/server_builder.h"
 #include "grpcpp/stats_time.h"
 #include "tensorflow/core/common_runtime/buf_rendezvous.h"
@@ -419,7 +421,183 @@ class GrpcWorkerService : public AsyncServiceInterface {
   TF_DISALLOW_COPY_AND_ASSIGN(GrpcWorkerService);
 };
 
-}  // namespace
+class GrpcDataServiceThread {
+ public:
+  GrpcDataServiceThread(GrpcWorker* worker, ::grpc::ServerBuilder* builder,
+                        ::grpc::AsyncGenericService* service)
+      : worker_(worker), service_(service), is_shutdown_(false) {
+    cq_ = builder->AddCompletionQueue();
+  }
+
+  ~GrpcDataServiceThread() {
+  }
+
+  void Start() {
+    thread_.reset(
+        worker_->env()->env->StartThread(ThreadOptions(), "grpc_worker_service",
+                                         [this]() { HandleRPCsLoop(); }));
+  }
+
+  void Join() { thread_.reset(); }  // Blocks until thread exits
+
+  void Shutdown() {
+    {
+      mutex_lock lock(shutdown_mu_);
+      is_shutdown_ = true;
+    }
+    cq_->Shutdown();
+  }
+
+ private:
+  GrpcWorker* worker_;
+  std::unique_ptr<::grpc::ServerCompletionQueue> cq_;
+  ::grpc::AsyncGenericService* service_;
+  std::unique_ptr<Thread> thread_;
+  mutex shutdown_mu_;
+  mutex write_mu_;
+  bool is_shutdown_ TF_GUARDED_BY(shutdown_mu_);
+
+  enum CallStatus { CREATE, READ, PROCESS_AND_WRITE, FINISH };
+
+  class GenericCallData {
+   public:
+    GenericCallData(GrpcDataServiceThread* parent,
+                    ::grpc::AsyncGenericService* service,
+                    ::grpc::ServerCompletionQueue* cq)
+        : parent_(parent),
+          service_(service),
+          stream_(::grpc::GenericServerAsyncReaderWriter(&ctx_)),
+          cq_(cq),
+          status_(CREATE) {
+      Proceed();
+    }
+
+    ~GenericCallData() {}
+
+    CallStatus get_status() const { return status_; }
+
+    void Proceed() {
+      if (status_ == CREATE) {
+        service_->RequestCall(&ctx_, &stream_, cq_, cq_, this);
+        status_ = READ;
+      } else if (status_ == READ) {
+        if (!parent_->is_shutdown_) {
+          new GenericCallData(parent_, service_, cq_);
+        }
+        stream_.Read(&req_byte_buffer_, this);
+        status_ = PROCESS_AND_WRITE;
+      } else if (status_ == PROCESS_AND_WRITE) {
+        ::grpc::ProtoBufferReader reader(&req_byte_buffer_);
+        request_.ParseFromZeroCopyStream(&reader);
+
+        parent_->worker_->RecvBuf(
+            &request_, &response_, &resp_slices_, [this](const Status& s) {
+              if (!s.ok()) {
+                VLOG(3) << "Bad response from RecvBuf:" << s;
+                LOG(ERROR) << "Bad response from RecvBuf:" << s;
+              }
+              ::grpc::ByteBuffer resp_byte_buffer(resp_slices_.data(),
+                                                  resp_slices_.size());
+
+              //        mutex_lock l(parent_->write_mu_);
+              ::grpc::WriteOptions options;
+              stream_.WriteAndFinish(resp_byte_buffer, options,
+                                     ::grpc::Status::OK, this);
+            });
+
+        status_ = FINISH;
+      } else {
+        GPR_ASSERT(status_ == FINISH);
+        delete this;
+      }
+    }
+
+   private:
+    GrpcDataServiceThread* parent_;
+    ::grpc::AsyncGenericService* service_;
+    ::grpc::ServerCompletionQueue* cq_;
+    ::grpc::GenericServerContext ctx_;
+    ::grpc::ByteBuffer req_byte_buffer_;
+    RecvBufRequest request_;
+    RecvBufResponse response_;
+    std::vector<::grpc::Slice> resp_slices_;
+
+    ::grpc::GenericServerAsyncReaderWriter stream_;
+    CallStatus status_;
+  };
+
+  void Schedule(std::function<void()> f) {
+    worker_->env()->compute_pool->Schedule(std::move(f));
+  }
+
+  void HandleRPCsLoop() {
+    new GenericCallData(this, service_, cq_.get());
+    void* tag;
+    bool ok;
+
+    while (cq_->Next(&tag, &ok)) {
+      auto call = static_cast<GenericCallData*>(tag);
+
+      GPR_ASSERT(ok);
+
+      //      if (call->get_status() == CallStatus::PROCESS_AND_WRITE) {
+      //        Schedule([this, tag, call]() { call->Proceed(); });
+      //      } else {
+      call->Proceed();
+      //      }
+    }
+  }
+  TF_DISALLOW_COPY_AND_ASSIGN(GrpcDataServiceThread);
+};
+
+class GrpcDataService : public DataChannelInterface {
+ public:
+  GrpcDataService(GrpcWorker* worker, ::grpc::ServerBuilder* builder)
+      : worker_(worker), is_shutdown_(false) {
+    LOG(INFO) << "GrpcDataService is created";
+    builder->RegisterAsyncGenericService(&generic_service_);
+    threads_.emplace_back(
+        new GrpcDataServiceThread(worker, builder, &generic_service_));
+  }
+
+  ~GrpcDataService() { LOG(INFO) << "GrpcDataService is destructed"; }
+
+  void Shutdown() override {
+    bool did_shutdown = false;
+    {
+      mutex_lock l(service_shutdown_mu_);
+      if (!is_shutdown_) {
+        LOG(INFO) << "Shutting down GrpcWorkerService.";
+        is_shutdown_ = true;
+        did_shutdown = true;
+      }
+    }
+    if (did_shutdown) {
+      for (auto& worker_thread : threads_) {
+        worker_thread->Shutdown();
+      }
+    }
+  }
+
+  void HandleRPCsLoop() {
+    for (auto& worker_thread : threads_) {
+      worker_thread->Start();
+    }
+    for (auto& worker_thread : threads_) {
+      worker_thread->Join();
+    }
+  }
+
+ private:
+  GrpcWorker* worker_;
+  ::grpc::AsyncGenericService generic_service_;
+  std::vector<std::unique_ptr<GrpcDataServiceThread>> threads_;
+  mutex service_shutdown_mu_;
+  bool is_shutdown_ TF_GUARDED_BY(service_shutdown_mu_);
+
+  TF_DISALLOW_COPY_AND_ASSIGN(GrpcDataService);
+};
+};  // namespace
 
 GrpcWorker::GrpcWorker(WorkerEnv* worker_env, const ConfigProto& config)
     : Worker(worker_env),
@@ -592,6 +770,26 @@ void SetTensorInRecvBufResp(int64_t max_chunk_bytes, const Tensor* tensor,
   }
   response->mutable_transport_options()->PackFrom(extra);
 }
+
+void TensorToSlices(int64_t max_chunk_bytes, const Tensor* tensor,
+                    std::vector<::grpc::Slice>* slices) {
+  grpc_stats_time_init();
+  grpc_stats_time_enable();
+  GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_6);
+  int64_t num_bytes = tensor->TotalBytes();
+  const char* head = reinterpret_cast<const char*>(DMAHelper::base(tensor));
+
+  // Format: Response Len(size_t),Response,Tensor
+  slices->push_back(::grpc::Slice(&num_bytes, sizeof(int64_t)));
+
+  while (num_bytes > 0) {
+    int64_t bytes =
+        max_chunk_bytes > 0 ? std::min(num_bytes, max_chunk_bytes) : num_bytes;
+    slices->push_back(::grpc::Slice(head, bytes));
+    head += bytes;
+    num_bytes -= bytes;
+  }
+}
 }  // namespace
 
 void GrpcWorker::RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
@@ -611,6 +809,135 @@ void GrpcWorker::RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
     response->set_require_ack(cache_enabled);
     response->set_exec_time_micros(
         ToInt64Microseconds(absl::Now() - rpc_begin));
+    done(status);
+  };
+
+  // If response cache is enabled and the response cache already contains the
+  // request, we delegate this retry request to the response cache. Otherwise,
+  // we add the request to the response cache and start the computation to
+  // retrieve the requested data.
+  if (cache_enabled &&
+      response_cache_->QueueRequest(request_id, step_id, do_response)) {
+    return;
+  }
+
+  auto rendezvous_done = [this, request_id, do_response, cache_enabled](
+                             const Tensor& tensor, const Status& status) {
+    if (cache_enabled) {
+      // Data is ready. Process all pending requests in the response cache.
+      response_cache_->OnRequestFinished(request_id, tensor, false, status);
+    } else {
+      do_response(tensor, false, status);
+    }
+  };
+
+  auto fail = [&rendezvous_done](const Status& status) {
+    rendezvous_done(Tensor(), status);
+  };
+
+  // This is a generic, low performance implementation appropriate for grpc.
+  Status s = recent_request_ids_.TrackUnique(request_id, "RecvBuf (GrpcWorker)",
+                                             *request);
+  if (!s.ok()) {
+    fail(s);
+    return;
+  }
+
+  CollectiveExecutor::Handle ce_handle(
+      env_->collective_executor_mgr->FindOrCreate(step_id), true);
+  CollectiveRemoteAccess* rma = ce_handle.get()->remote_access();
+  auto consumer_callback = [this, request, rendezvous_done](
+                               const Status& status,
+                               BufRendezvous::Hook* hook) {
+    Status s = status;
+    if (s.ok()) {
+      if (hook == nullptr) {
+        s = errors::Internal("Invalid null hook for key ",
+                             request->buf_rendezvous_key());
+      }
+      if (!DMAHelper::CanUseDMA(hook->prod_value)) {
+        s = errors::Internal("Tensor value for key ",
+                             request->buf_rendezvous_key(),
+                             " is not of a type supported by RecvBuf");
+      }
+    } else {
+      if (hook != nullptr) {
+        LOG(ERROR) << "Got hook " << hook << " with status " << s
+                   << " from ConsumeBuf";
+      }
+    }
+
+    if (s.ok()) {
+      // The RPC source tensor needs to be in CPU RAM.  If not already
+      // there make a copy using memory appropriate to the purpose.
+      const size_t num_bytes = hook->prod_value->TotalBytes();
+      const bool on_host =
+          hook->prod_dev->attributes().device_type() == "CPU" ||
+          hook->prod_attr.on_host();
+      if ((!on_host) && (num_bytes > 0)) {
+        Device* cpu_dev = nullptr;
+        s = env_->device_mgr->LookupDevice("CPU:0", &cpu_dev);
+        if (s.ok()) {
+          AllocatorAttributes cpu_attr;
+          cpu_attr.set_gpu_compatible(true);
+          cpu_attr.set_nic_compatible(true);
+          profiler::ScopedMemoryDebugAnnotation op_annotation(
+              "GrpcWorker::RecvBufAsync::consumer_callback", request->step_id(),
+              "dynamic", hook->prod_value->dtype(),
+              [hook]() { return hook->prod_value->shape().DebugString(); });
+          Tensor* cpu_tensor =
+              new Tensor(cpu_dev->GetAllocator(cpu_attr),
+                         hook->prod_value->dtype(), hook->prod_value->shape());
+          hook->prod_ctx->CopyDeviceTensorToCPU(
+              hook->prod_value, "empty_name", hook->prod_dev, cpu_tensor,
+              [hook, cpu_tensor, rendezvous_done](const Status& s) {
+                rendezvous_done(*cpu_tensor, s);
+                BufRendezvous::DoneWithHook(hook);
+                delete cpu_tensor;
+              });
+          return;
+        }
+      }
+    }
+
+    if (hook == nullptr) {
+      rendezvous_done(Tensor(), s);
+    } else {
+      rendezvous_done(*hook->prod_value, s);
+      BufRendezvous::DoneWithHook(hook);
+    }
+  };
+  rma->buf_rendezvous()->ConsumeBuf(
+      request->buf_rendezvous_key(), request->src_device(),
+      request->src_incarnation(), consumer_callback,
+      /*cancellation_manager=*/nullptr);
+}
+
+void GrpcWorker::RecvBuf(const RecvBufRequest* request,
+                         RecvBufResponse* response,
+                         std::vector<::grpc::Slice>* slices,
+                         StatusCallback done) {
+  const int64_t request_id = request->request_id();
+  const int64_t step_id = request->step_id();
+  bool cache_enabled = (response_cache_ != nullptr && request_id != 0);
+  auto rpc_begin = absl::Now();
+
+  auto do_response = [this, request, response, done, cache_enabled, rpc_begin,
+                      slices](const Tensor& tensor, bool is_dead,
+                              const Status& status) {
+    //    if (status.ok()) {
+    //      SetTensorInRecvBufResp(recv_buf_max_chunk_, &tensor, response);
+    //    }
+    if (status.ok()) {
+      TensorToSlices(recv_buf_max_chunk_, &tensor, slices);
+    }
+    response->set_send_start_micros(env_->env->NowMicros());
+    response->set_require_ack(cache_enabled);
+    response->set_exec_time_micros(
+        ToInt64Microseconds(absl::Now() - rpc_begin));
+    // Write response
+    slices->push_back(::grpc::Slice(response->SerializeAsString()));
+
     done(status);
   };
 
@@ -771,6 +1098,12 @@ std::unique_ptr<AsyncServiceInterface> NewGrpcWorkerService(
     GrpcWorkerServiceOptions options) {
   return std::unique_ptr<AsyncServiceInterface>(
       new GrpcWorkerService(worker, builder, options));
+}
+
+std::unique_ptr<DataChannelInterface> NewGrpcDataChannelService(
+    GrpcWorker* worker, ::grpc::ServerBuilder* builder) {
+  return std::unique_ptr<DataChannelInterface>(
+      new GrpcDataService(worker, builder));
 }
 
 }  // namespace tensorflow

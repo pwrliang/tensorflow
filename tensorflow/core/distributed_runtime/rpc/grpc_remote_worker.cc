@@ -16,11 +16,13 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/rpc/grpc_remote_worker.h"
 
 #include <iomanip>
-#include <utility>
 #include <sstream>
+#include <utility>
+
 #include "grpcpp/generic/generic_stub.h"
 #include "grpcpp/grpcpp.h"
 #include "grpcpp/stats_time.h"
+#include "grpcpp/support/byte_buffer.h"
 #include "tensorflow/core/common_runtime/process_util.h"
 #include "tensorflow/core/distributed_runtime/call_options.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_client_cq_tag.h"
@@ -33,6 +35,7 @@ limitations under the License.
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/threadpool.h"
+#include "tensorflow/core/lib/random/random.h"
 #include "tensorflow/core/lib/strings/str_util.h"
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/tracing.h"
@@ -120,15 +123,36 @@ class CommProfiler {
   bool print_ = true;
 };
 
+struct AsyncClientCall {
+  ::grpc::ByteBuffer reply;
+  ::grpc::ClientContext context;
+  ::grpc::Status status;
+
+  std::unique_ptr<::grpc::ClientAsyncResponseReader<::grpc::ByteBuffer>>
+      response_reader;
+};
+
+template <typename PROTO_T>
+::grpc::ByteBuffer SerializeToByteBuffer(PROTO_T* msg) {
+  ::grpc::Slice slice(msg->SerializeAsString());
+  ::grpc::ByteBuffer buffer(&slice, 1);
+  return buffer;
+}
+
 class GrpcRemoteWorker : public WorkerInterface {
  public:
-  explicit GrpcRemoteWorker(SharedGrpcChannelPtr channel,
-                            ::grpc::CompletionQueue* completion_queue,
-                            thread::ThreadPool* callback_threadpool,
-                            WorkerCacheLogger* logger, const string& target)
+  explicit GrpcRemoteWorker(
+      SharedGrpcChannelPtr channel,
+      std::shared_ptr<::grpc::Channel> data_channel,
+      ::grpc::CompletionQueue* completion_queue,
+      ::grpc::CompletionQueue* data_channel_completion_queue,
+      thread::ThreadPool* callback_threadpool, WorkerCacheLogger* logger,
+      const string& target)
       : channel_(std::move(channel)),
         stub_(channel_),
+        data_channel_stub_(data_channel),
         cq_(completion_queue),
+        data_channel_cq_(data_channel_completion_queue),
         callback_threadpool_(callback_threadpool),
         getstatus_(Method(GrpcWorkerMethod::kGetStatus)),
         createworkersession_(Method(GrpcWorkerMethod::kCreateWorkerSession)),
@@ -207,12 +231,29 @@ class GrpcRemoteWorker : public WorkerInterface {
     IssueRequest(request, response, cleanupall_, std::move(done));
   }
 
+  void checkError(::grpc::Status& s) {
+    if (!s.ok()) {
+      LOG(ERROR) << "RPC Error: " << s.error_message();
+    }
+    GPR_ASSERT(s.ok());
+  }
+
+  void RecvBufThroughDataChannel(CallOptions* call_opts,
+                                 const RecvBufRequest* request,
+                                 RecvBufResponse* response, void* payload,
+                                 StatusCallback done) override {
+    new DataChannelRPCState<protobuf::Message>(
+        &data_channel_stub_, data_channel_cq_, recvbuf_, *request, response,
+        static_cast<::grpc::ByteBuffer*>(payload), std::move(done), call_opts,
+        callback_threadpool_, MaxRetries(),
+        /*fail_fast=*/true, &target_);
+  }
+
   void RecvBufAsync(CallOptions* call_opts, const RecvBufRequest* request,
                     RecvBufResponse* response, StatusCallback done) override {
     int64_t start_usec = Env::Default()->NowMicros();
     // Type-specialized logging for this method.
     bool logging_active = logger_->LoggingActive() || VLOG_IS_ON(2);
-
     auto callback = [this, request, response, done, start_usec,
                      logging_active](Status s) {
       if (logging_active || true) {
@@ -247,16 +288,16 @@ class GrpcRemoteWorker : public WorkerInterface {
           //                    << " Exec time: " <<
           //                    response->exec_time_micros() / 1000
           //                    << " ms";
-          {
-            auto& profiler = CommProfiler::GetInstance();
-            std::lock_guard<std::mutex> lg_(profiler.mutex_);
-            auto& entry = profiler.comm_time_[std::this_thread::get_id()];
-
-            entry.rpc_time_ms += s.get_rpc_time_ms();
-            entry.exec_time_ms += response->exec_time_micros() / 1000.0;
-            entry.size_bytes += num_bytes;
-            entry.count++;
-          }
+          //          {
+          //            auto& profiler = CommProfiler::GetInstance();
+          //            std::lock_guard<std::mutex> lg_(profiler.mutex_);
+          //            auto& entry =
+          //            profiler.comm_time_[std::this_thread::get_id()];
+          //
+          //            entry.rpc_time_ms += s.get_rpc_time_ms();
+          //            entry.exec_time_ms += response->exec_time_micros() /
+          //            1000.0; entry.size_bytes += num_bytes; entry.count++;
+          //          }
           logger_->RecordDataTransfer(
               step_id, send_start_usec, end_usec, key, request->src_device(),
               request->dst_device(), num_bytes, "", "RecvBuf");
@@ -270,6 +311,7 @@ class GrpcRemoteWorker : public WorkerInterface {
       if (response->require_ack()) {
         IssueMarkRecvFinishedRequest(request->request_id());
       }
+
       done(s);
     };
 
@@ -413,7 +455,9 @@ class GrpcRemoteWorker : public WorkerInterface {
 
   SharedGrpcChannelPtr channel_;
   ::grpc::GenericStub stub_;
+  ::grpc::GenericStub data_channel_stub_;
   ::grpc::CompletionQueue* cq_;
+  ::grpc::CompletionQueue* data_channel_cq_;
   thread::ThreadPool* callback_threadpool_;
 
   const ::grpc::string getstatus_;
@@ -440,12 +484,14 @@ class GrpcRemoteWorker : public WorkerInterface {
   TF_DISALLOW_COPY_AND_ASSIGN(GrpcRemoteWorker);
 };
 
-WorkerInterface* NewGrpcRemoteWorker(SharedGrpcChannelPtr channel,
-                                     ::grpc::CompletionQueue* completion_queue,
-                                     thread::ThreadPool* callback_threadpool,
-                                     WorkerCacheLogger* logger,
-                                     const string& target) {
-  return new GrpcRemoteWorker(std::move(channel), completion_queue,
+WorkerInterface* NewGrpcRemoteWorker(
+    SharedGrpcChannelPtr channel, std::shared_ptr<::grpc::Channel> data_channel,
+    ::grpc::CompletionQueue* completion_queue,
+    ::grpc::CompletionQueue* data_channel_completion_queue,
+    thread::ThreadPool* callback_threadpool, WorkerCacheLogger* logger,
+    const string& target) {
+  return new GrpcRemoteWorker(std::move(channel), data_channel,
+                              completion_queue, data_channel_completion_queue,
                               callback_threadpool, logger, target);
 }
 

@@ -36,6 +36,15 @@ class AsyncServiceInterface {
   virtual void Shutdown() = 0;
 };
 
+class DataChannelInterface {
+ public:
+  virtual ~DataChannelInterface() {}
+
+  virtual void HandleRPCsLoop() = 0;
+
+  virtual void Shutdown() = 0;
+};
+
 }  // namespace tensorflow
 
 #endif  // TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_RPC_ASYNC_SERVICE_INTERFACE_H_

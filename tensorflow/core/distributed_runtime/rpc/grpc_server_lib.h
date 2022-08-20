@@ -209,6 +209,11 @@ class GrpcServer : public ServerInterface {
   std::unique_ptr<Thread> worker_thread_ TF_GUARDED_BY(mu_);
   std::unique_ptr<GrpcWorkerEnv> grpc_worker_env_;
 
+  // Generic Data Channel
+  DataChannelInterface *data_channel_service_ = nullptr;
+  std::unique_ptr<Thread> data_channel_thread_ TF_GUARDED_BY(mu_);
+
+
   // TensorFlow Eager implementation, and RPC polling thread.
   AsyncServiceInterface* eager_service_ = nullptr;
   std::unique_ptr<Thread> eager_thread_ TF_GUARDED_BY(mu_);
@@ -225,6 +230,7 @@ class GrpcServer : public ServerInterface {
   ServerDef server_def_ TF_GUARDED_BY(mu_);
 
   std::unique_ptr<::grpc::Server> server_ TF_GUARDED_BY(mu_);
+  std::unique_ptr<::grpc::Server> data_channel_server_ TF_GUARDED_BY(mu_);
 };
 
 }  // namespace tensorflow

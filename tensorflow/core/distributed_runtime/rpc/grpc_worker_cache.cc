@@ -55,12 +55,14 @@ class GrpcWorkerCache : public WorkerCachePartial {
     if (target == local_target_) {
       return local_worker_;
     } else {
-      SharedGrpcChannelPtr channel = channel_cache_->FindWorkerChannel(target);
+      auto channel_pair = channel_cache_->FindWorkerChannel(target);
+      auto channel = channel_pair.first;
+      auto data_channel = channel_pair.second;
+
       if (!channel) {
         return nullptr;
       }
       size_t index = AssignWorkerToThread(target);
-      auto data_channel = channel_cache_->ChannelToDataChannel(channel);
 
       if (data_channel == nullptr) {
         LOG(ERROR) << "Got empty channel";

@@ -247,7 +247,7 @@ class GrpcEagerClientCache : public EagerClientCache {
     auto it = clients_.find(target);
     if (it == clients_.end()) {
       tensorflow::SharedGrpcChannelPtr shared =
-          cache_->FindWorkerChannel(target);
+          cache_->FindWorkerChannel(target).first;
       if (shared == nullptr) {
         return errors::InvalidArgument("Client for target ", target,
                                        " not found.");

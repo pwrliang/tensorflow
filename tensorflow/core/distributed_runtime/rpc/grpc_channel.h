@@ -73,10 +73,8 @@ class GrpcChannelCache {
   // worker named by 'target'. 'target' is of the following
   // format: /job:<job identifier>/task:<task id>
   // E.g., /job:mnist/task:2
-  virtual SharedGrpcChannelPtr FindWorkerChannel(const string& target) = 0;
-
-  virtual SharedGrpcChannelPtr ChannelToDataChannel(
-      SharedGrpcChannelPtr chan_ptr) = 0;
+  virtual std::pair<SharedGrpcChannelPtr, SharedGrpcChannelPtr>
+  FindWorkerChannel(const string& target) = 0;
 
   // Translates a string in the form `/job:X/task:Z` into a host_port.
   virtual string TranslateTask(const string& task) = 0;

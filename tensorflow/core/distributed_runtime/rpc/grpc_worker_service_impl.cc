@@ -48,6 +48,8 @@ const char* GrpcWorkerMethodName(GrpcWorkerMethod id) {
       return "/tensorflow.WorkerService/RecvTensor";
     case GrpcWorkerMethod::kRecvBuf:
       return "/tensorflow.WorkerService/RecvBuf";
+    case GrpcWorkerMethod::kRecvBufBypassSer:
+      return "/tensorflow.WorkerService/RecvBufBypassSer";
     case GrpcWorkerMethod::kLogging:
       return "/tensorflow.WorkerService/Logging";
     case GrpcWorkerMethod::kTracing:

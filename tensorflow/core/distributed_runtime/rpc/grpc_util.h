@@ -154,6 +154,7 @@ bool GrpcMaybeParseProto(::grpc::ByteBuffer* src, protobuf::Message* dst);
 // Specialization for TensorResponse
 bool GrpcMaybeParseProto(::grpc::ByteBuffer* src, TensorResponse* dst);
 
+bool GrpcMaybeParseProto(::grpc::ByteBuffer* src, RecvBufBypassSerResponse* dst);
 // Copy string src to grpc buffer *dst.
 ::grpc::Status GrpcMaybeUnparseProto(const string& src,
                                      ::grpc::ByteBuffer* dst);

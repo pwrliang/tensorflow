@@ -100,6 +100,13 @@ bool GrpcMaybeParseProto(::grpc::ByteBuffer* src, TensorResponse* dst) {
   return s.ok();
 }
 
+bool GrpcMaybeParseProto(::grpc::ByteBuffer* src, RecvBufBypassSerResponse* dst) {
+  auto s = dst->ParseFrom(src);
+  return s.ok();
+}
+
+
+
 // GrpcMaybeParseProto simply copies bytes into the string.
 bool GrpcMaybeParseProto(grpc::ByteBuffer* src, string* dst) {
   dst->clear();

@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <memory>
 #include <unordered_map>
+
 #include "grpcpp/server_builder.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_response_cache.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_worker_service_impl.h"
@@ -51,6 +52,9 @@ class GrpcWorker : public Worker {
 
   void RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
                     RecvBufResponse* response, StatusCallback done) override;
+
+  void RecvBufAsyncBypassSer(CallOptions* opts, const RecvBufRequest* request,
+                             ::grpc::ByteBuffer* response, StatusCallback done);
 
   void CleanupGraphAsync(const CleanupGraphRequest* request,
                          CleanupGraphResponse* response,

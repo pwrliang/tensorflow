@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_TENSOR_CODING_H_
 #define TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_TENSOR_CODING_H_
 
+#include "grpcpp/support/byte_buffer.h"
 #include "tensorflow/core/framework/allocator.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -104,6 +105,21 @@ class TensorResponse {
   bool already_used_ = false;
   Tensor tensor_;
   RecvTensorResponse meta_;
+};
+
+class RecvBufBypassSerResponse {
+ public:
+  // Parse the RecvTensorResponse encoded in the data yielded by
+  // source->contents() into *this.
+  Status ParseFrom(::grpc::ByteBuffer* source);
+
+  const RecvBufResponse& metadata() const { return meta_; }
+
+  const ::grpc::ByteBuffer& payload() const { return payload_; }
+
+ private:
+  RecvBufResponse meta_;
+  ::grpc::ByteBuffer payload_;
 };
 
 }  // namespace tensorflow

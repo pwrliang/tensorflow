@@ -32,6 +32,7 @@ typedef std::function<void(const Status&)> StatusCallback;
 
 // Custom decoder for a response to RecvTensorAsync.
 class TensorResponse;
+class RecvBufBypassSerResponse;
 
 // Interface for talking with the TensorFlow Worker service.
 class WorkerInterface {
@@ -114,6 +115,11 @@ class WorkerInterface {
 
   virtual void RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
                             RecvBufResponse* response, StatusCallback done) = 0;
+
+  virtual void RecvBufBypassSerAsync(CallOptions* opts,
+                                     const RecvBufRequest* request,
+                                     RecvBufBypassSerResponse* response,
+                                     StatusCallback done) = 0;
 
   virtual void CompleteGroupAsync(CallOptions* opts,
                                   const CompleteGroupRequest* request,

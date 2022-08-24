@@ -80,6 +80,7 @@ enum class GrpcWorkerMethod {
   kCleanupAll,
   kRecvTensor,
   kRecvBuf,
+  kRecvBufBypassSer,
   kLogging,
   kTracing,
   kCompleteGroup,

@@ -94,6 +94,10 @@ class Worker : public WorkerInterface {
   void RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
                     RecvBufResponse* response, StatusCallback done) override;
 
+  void RecvBufBypassSerAsync(CallOptions* opts, const RecvBufRequest* request,
+                             RecvBufBypassSerResponse* response,
+                             StatusCallback done) override;
+
   void CompleteGroupAsync(CallOptions* opts,
                           const CompleteGroupRequest* request,
                           CompleteGroupResponse* response,

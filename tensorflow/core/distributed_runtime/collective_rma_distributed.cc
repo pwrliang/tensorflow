@@ -15,6 +15,7 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/collective_rma_distributed.h"
 
 #include <memory>
+
 #include "grpcpp/stats_time.h"
 #include "tensorflow/core/common_runtime/base_collective_executor.h"
 #include "tensorflow/core/common_runtime/copy_tensor.h"
@@ -31,7 +32,7 @@ limitations under the License.
 #include "tensorflow/core/profiler/lib/scoped_memory_debug_annotation.h"
 #include "tensorflow/core/protobuf/transport_options.pb.h"
 #include "tensorflow/core/protobuf/worker.pb.h"
-
+#include "tensorflow/core/distributed_runtime/tensor_coding.h"
 namespace tensorflow {
 
 namespace {
@@ -61,11 +62,13 @@ class RecvBufCall : public CancellableCall {
   ~RecvBufCall() override {}
 
   void IssueCall(const StatusCallback& done) override {
-    wi_->RecvBufAsync(&opts_, &req_, &resp_, done);
+    //    wi_->RecvBufAsync(&opts_, &req_, &resp_, done);
+    wi_->RecvBufBypassSerAsync(&opts_, &req_, &resp_bypass_ser_, done);
   }
 
   RecvBufRequest req_;
   RecvBufResponse resp_;
+  RecvBufBypassSerResponse resp_bypass_ser_;
 };
 
 void PopulateTensorFromExtra(const RecvBufRespExtra& extra,
@@ -105,6 +108,19 @@ Status PopulateTensorFromResponse(const RecvBufResponse& response,
                             " bytes, expected: ", cpu_tensor->TotalBytes());
   }
   PopulateTensorFromExtra(extra, cpu_tensor);
+  return Status::OK();
+}
+
+Status PopulateTensorFromByteBuffer(const ::grpc::ByteBuffer& payload,
+                                    Tensor* cpu_tensor) {
+  char* head = reinterpret_cast<char*>(DMAHelper::base(cpu_tensor));
+  std::vector<::grpc::Slice> slices;
+
+  payload.Dump(&slices);
+  for (auto& slice : slices) {
+    memcpy(head, slice.begin(), slice.size());
+    head += slice.size();
+  }
   return Status::OK();
 }
 
@@ -188,8 +204,12 @@ void CollectiveRemoteAccessDistributed::RecvFromPeer(
           // (NOP in 2nd case) In case the final to_tensor is on GPU, buf_ptr
           // points to a tmp CPU buffer and needs to be copied over to
           // to_tensor.
-          Status status =
-              PopulateTensorFromResponse(state->call->resp_, dst_tensor);
+          //          Status status =
+          //              PopulateTensorFromResponse(state->call->resp_,
+          //              dst_tensor);
+          Status status = PopulateTensorFromByteBuffer(
+              state->call->resp_bypass_ser_.payload(), dst_tensor);
+
           if (!status.ok()) {
             done(status);
             delete state;

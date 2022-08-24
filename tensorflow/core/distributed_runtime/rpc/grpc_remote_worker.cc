@@ -16,8 +16,9 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/rpc/grpc_remote_worker.h"
 
 #include <iomanip>
-#include <utility>
 #include <sstream>
+#include <utility>
+
 #include "grpcpp/generic/generic_stub.h"
 #include "grpcpp/grpcpp.h"
 #include "grpcpp/stats_time.h"
@@ -140,6 +141,7 @@ class GrpcRemoteWorker : public WorkerInterface {
         cleanupall_(Method(GrpcWorkerMethod::kCleanupAll)),
         recvtensor_(Method(GrpcWorkerMethod::kRecvTensor)),
         recvbuf_(Method(GrpcWorkerMethod::kRecvBuf)),
+        recvbuf_bypass_ser_(Method(GrpcWorkerMethod::kRecvBufBypassSer)),
         logging_(Method(GrpcWorkerMethod::kLogging)),
         tracing_(Method(GrpcWorkerMethod::kTracing)),
         completegroup_(Method(GrpcWorkerMethod::kCompleteGroup)),
@@ -359,6 +361,28 @@ class GrpcRemoteWorker : public WorkerInterface {
     IssueRequest(request, response, recvtensor_, callback, call_opts);
   }
 
+  void RecvBufBypassSerAsync(CallOptions* call_opts,
+                             const RecvBufRequest* request,
+                             RecvBufBypassSerResponse* response,
+                             StatusCallback done) override {
+    VLOG(1) << "RecvTensorAsync req: " << request->DebugString();
+    int64_t start_usec = Env::Default()->NowMicros();
+    // Type-specialized logging for this method.
+    bool logging_active = logger_->LoggingActive() || VLOG_IS_ON(2);
+
+    auto callback = [this, request, response, done, start_usec,
+                     logging_active](Status s) {
+      // Note done() can delete this worker object, so we need to call done()
+      // last.
+      if (response->metadata().require_ack()) {
+        IssueMarkRecvFinishedRequest(request->request_id());
+      }
+      done(s);
+    };
+
+    IssueRequest(request, response, recvbuf_bypass_ser_, callback, call_opts);
+  }
+
   void LoggingAsync(const LoggingRequest* request, LoggingResponse* response,
                     StatusCallback done) override {
     IssueRequest(request, response, logging_, done);
@@ -388,6 +412,16 @@ class GrpcRemoteWorker : public WorkerInterface {
                                  std::move(done), call_opts,
                                  callback_threadpool_, MaxRetries(),
                                  /*fail_fast=*/true, &target_);
+  }
+
+  void IssueRequest(const protobuf::Message* request,
+                    RecvBufBypassSerResponse* response,
+                    const ::grpc::string& method, StatusCallback done,
+                    CallOptions* call_opts = nullptr) {
+    new RPCState<RecvBufBypassSerResponse>(&stub_, cq_, method, *request,
+                                           response, std::move(done), call_opts,
+                                           callback_threadpool_, MaxRetries(),
+                                           /*fail_fast=*/true, &target_);
   }
 
   void IssueMarkRecvFinishedRequest(int64_t request_id) {
@@ -426,6 +460,7 @@ class GrpcRemoteWorker : public WorkerInterface {
   const ::grpc::string cleanupall_;
   const ::grpc::string recvtensor_;
   const ::grpc::string recvbuf_;
+  const ::grpc::string recvbuf_bypass_ser_;
   const ::grpc::string logging_;
   const ::grpc::string tracing_;
   const ::grpc::string completegroup_;

@@ -158,6 +158,7 @@ class GrpcWorkerServiceThread {
                  1000);
          ++i) {
       EnqueueRecvTensorRequestRaw();
+      EnqueueRecvBufBypassSerRequestRaw();
     }
 
     void* tag;
@@ -267,6 +268,7 @@ class GrpcWorkerServiceThread {
 
   void RecvTensorHandlerRaw(
       WorkerCall<RecvTensorRequest, ::grpc::ByteBuffer>* call) {
+    LOG(INFO) << "Got RecvTensorHandlerRaw";
     Schedule([this, call]() {
       CallOptions* call_opts = new CallOptions;
       call->SetCancelCallback([call_opts]() { call_opts->StartCancel(); });
@@ -301,6 +303,26 @@ class GrpcWorkerServiceThread {
                             });
     });
     ENQUEUE_REQUEST(RecvBuf, true);
+  }
+
+  void RecvBufBypassSerHandlerRaw(
+      WorkerCall<RecvBufRequest, ::grpc::ByteBuffer>* call) {
+    Schedule([this, call]() {
+      CallOptions* call_opts = new CallOptions;
+      call->SetCancelCallback([call_opts]() { call_opts->StartCancel(); });
+      worker_->RecvBufAsyncBypassSer(
+          call_opts, &call->request, &call->response,
+          [call, call_opts](const Status& s) {
+            call->ClearCancelCallback();
+            delete call_opts;
+            if (!s.ok()) {
+              VLOG(3) << "Bad response from RecvBuf:" << s;
+              LOG(ERROR) << "Bad response from RecvBuf:" << s;
+            }
+            call->SendResponse(ToGrpcStatus(s));
+          });
+    });
+    EnqueueRecvBufBypassSerRequestRaw();
   }
 
   void CompleteGroupHandler(
@@ -351,6 +373,19 @@ class GrpcWorkerServiceThread {
               worker_service_, cq_.get(),
               static_cast<int>(GrpcWorkerMethod::kRecvTensor),
               &GrpcWorkerServiceThread::RecvTensorHandlerRaw,
+              true /* supports cancel*/);
+    }
+  }
+
+  void EnqueueRecvBufBypassSerRequestRaw() {
+    mutex_lock l(shutdown_mu_);
+    if (!is_shutdown_) {
+      Call<GrpcWorkerServiceThread, grpc::WorkerService::AsyncService,
+           RecvBufRequest, ::grpc::ByteBuffer>::
+          EnqueueRequestForMethod(
+              worker_service_, cq_.get(),
+              static_cast<int>(GrpcWorkerMethod::kRecvBufBypassSer),
+              &GrpcWorkerServiceThread::RecvBufBypassSerHandlerRaw,
               true /* supports cancel*/);
     }
   }
@@ -592,6 +627,26 @@ void SetTensorInRecvBufResp(int64_t max_chunk_bytes, const Tensor* tensor,
   }
   response->mutable_transport_options()->PackFrom(extra);
 }
+
+void TensorToSlices(int64_t max_chunk_bytes, const Tensor* tensor,
+                    std::vector<::grpc::Slice>* slices) {
+  grpc_stats_time_init();
+  grpc_stats_time_enable();
+  GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_6);
+  int64_t num_bytes = tensor->TotalBytes();
+  const char* head = reinterpret_cast<const char*>(DMAHelper::base(tensor));
+
+  // Format: Response Len(size_t),Response,Tensor
+  slices->push_back(::grpc::Slice(&num_bytes, sizeof(int64_t)));
+
+  while (num_bytes > 0) {
+    int64_t bytes =
+        max_chunk_bytes > 0 ? std::min(num_bytes, max_chunk_bytes) : num_bytes;
+    slices->push_back(::grpc::Slice(head, bytes));
+    head += bytes;
+    num_bytes -= bytes;
+  }
+}
 }  // namespace
 
 void GrpcWorker::RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
@@ -611,6 +666,135 @@ void GrpcWorker::RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
     response->set_require_ack(cache_enabled);
     response->set_exec_time_micros(
         ToInt64Microseconds(absl::Now() - rpc_begin));
+    done(status);
+  };
+
+  // If response cache is enabled and the response cache already contains the
+  // request, we delegate this retry request to the response cache. Otherwise,
+  // we add the request to the response cache and start the computation to
+  // retrieve the requested data.
+  if (cache_enabled &&
+      response_cache_->QueueRequest(request_id, step_id, do_response)) {
+    return;
+  }
+
+  auto rendezvous_done = [this, request_id, do_response, cache_enabled](
+                             const Tensor& tensor, const Status& status) {
+    if (cache_enabled) {
+      // Data is ready. Process all pending requests in the response cache.
+      response_cache_->OnRequestFinished(request_id, tensor, false, status);
+    } else {
+      do_response(tensor, false, status);
+    }
+  };
+
+  auto fail = [&rendezvous_done](const Status& status) {
+    rendezvous_done(Tensor(), status);
+  };
+
+  // This is a generic, low performance implementation appropriate for grpc.
+  Status s = recent_request_ids_.TrackUnique(request_id, "RecvBuf (GrpcWorker)",
+                                             *request);
+  if (!s.ok()) {
+    fail(s);
+    return;
+  }
+
+  CollectiveExecutor::Handle ce_handle(
+      env_->collective_executor_mgr->FindOrCreate(step_id), true);
+  CollectiveRemoteAccess* rma = ce_handle.get()->remote_access();
+  auto consumer_callback = [this, request, rendezvous_done](
+                               const Status& status,
+                               BufRendezvous::Hook* hook) {
+    Status s = status;
+    if (s.ok()) {
+      if (hook == nullptr) {
+        s = errors::Internal("Invalid null hook for key ",
+                             request->buf_rendezvous_key());
+      }
+      if (!DMAHelper::CanUseDMA(hook->prod_value)) {
+        s = errors::Internal("Tensor value for key ",
+                             request->buf_rendezvous_key(),
+                             " is not of a type supported by RecvBuf");
+      }
+    } else {
+      if (hook != nullptr) {
+        LOG(ERROR) << "Got hook " << hook << " with status " << s
+                   << " from ConsumeBuf";
+      }
+    }
+
+    if (s.ok()) {
+      // The RPC source tensor needs to be in CPU RAM.  If not already
+      // there make a copy using memory appropriate to the purpose.
+      const size_t num_bytes = hook->prod_value->TotalBytes();
+      const bool on_host =
+          hook->prod_dev->attributes().device_type() == "CPU" ||
+          hook->prod_attr.on_host();
+      if ((!on_host) && (num_bytes > 0)) {
+        Device* cpu_dev = nullptr;
+        s = env_->device_mgr->LookupDevice("CPU:0", &cpu_dev);
+        if (s.ok()) {
+          AllocatorAttributes cpu_attr;
+          cpu_attr.set_gpu_compatible(true);
+          cpu_attr.set_nic_compatible(true);
+          profiler::ScopedMemoryDebugAnnotation op_annotation(
+              "GrpcWorker::RecvBufAsync::consumer_callback", request->step_id(),
+              "dynamic", hook->prod_value->dtype(),
+              [hook]() { return hook->prod_value->shape().DebugString(); });
+          Tensor* cpu_tensor =
+              new Tensor(cpu_dev->GetAllocator(cpu_attr),
+                         hook->prod_value->dtype(), hook->prod_value->shape());
+          hook->prod_ctx->CopyDeviceTensorToCPU(
+              hook->prod_value, "empty_name", hook->prod_dev, cpu_tensor,
+              [hook, cpu_tensor, rendezvous_done](const Status& s) {
+                rendezvous_done(*cpu_tensor, s);
+                BufRendezvous::DoneWithHook(hook);
+                delete cpu_tensor;
+              });
+          return;
+        }
+      }
+    }
+
+    if (hook == nullptr) {
+      rendezvous_done(Tensor(), s);
+    } else {
+      rendezvous_done(*hook->prod_value, s);
+      BufRendezvous::DoneWithHook(hook);
+    }
+  };
+  rma->buf_rendezvous()->ConsumeBuf(
+      request->buf_rendezvous_key(), request->src_device(),
+      request->src_incarnation(), consumer_callback,
+      /*cancellation_manager=*/nullptr);
+}
+
+void GrpcWorker::RecvBufAsyncBypassSer(CallOptions* opts,
+                                       const RecvBufRequest* request,
+                                       ::grpc::ByteBuffer* response,
+                                       StatusCallback done) {
+  const int64_t request_id = request->request_id();
+  const int64_t step_id = request->step_id();
+  bool cache_enabled = (response_cache_ != nullptr && request_id != 0);
+  auto rpc_begin = absl::Now();
+
+  auto do_response = [this, response, done, cache_enabled, rpc_begin](
+                         const Tensor& tensor, bool is_dead,
+                         const Status& status) {
+    RecvBufResponse recv_response;
+    std::vector<::grpc::Slice> slices;
+
+    if (status.ok()) {
+      TensorToSlices(recv_buf_max_chunk_, &tensor, &slices);
+    }
+    recv_response.set_send_start_micros(env_->env->NowMicros());
+    recv_response.set_require_ack(cache_enabled);
+    recv_response.set_exec_time_micros(
+        ToInt64Microseconds(absl::Now() - rpc_begin));
+    slices.push_back(::grpc::Slice(recv_response.SerializeAsString()));
+
+    *response = ::grpc::ByteBuffer(slices.data(), slices.size());
     done(status);
   };
 

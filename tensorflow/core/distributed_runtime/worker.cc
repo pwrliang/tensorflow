@@ -497,4 +497,11 @@ void Worker::RecvTensorAsync(CallOptions* opts,
   done(errors::Unimplemented("Worker::RecvTensorAsync()"));
 }
 
+void Worker::RecvBufBypassSerAsync(CallOptions* opts,
+                                   const RecvBufRequest* request,
+                                   RecvBufBypassSerResponse* response,
+                                   StatusCallback done) {
+  done(errors::Unimplemented("Worker::RecvBufBypassSerAsync()"));
+}
+
 }  // namespace tensorflow

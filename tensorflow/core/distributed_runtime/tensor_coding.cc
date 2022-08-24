@@ -16,7 +16,8 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/tensor_coding.h"
 
 #include "google/protobuf/any.pb.h"
-
+#include "grpcpp/support/byte_buffer.h"
+#include "grpcpp/support/proto_buffer_reader.h"
 #include "tensorflow/core/common_runtime/device.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/tensor_shape.pb.h"
@@ -294,6 +295,54 @@ bool TensorResponse::ParseSlow(Source* source) {
   meta_.clear_tensor();
 
   return true;
+}
+
+Status RecvBufBypassSerResponse::ParseFrom(::grpc::ByteBuffer* source) {
+  Status s = Status::OK();
+  std::vector<::grpc::Slice> slices;
+  bool parse_ok = source->Dump(&slices).ok();
+  size_t slice_idx = 0;
+  int64_t payload_len;
+  int64_t consumed_payload_len = 0;
+  std::vector<::grpc::Slice> payload_slices;
+
+  do {
+    auto& slice = slices[slice_idx];
+    auto* begin = slice.begin();
+
+    if (slice_idx == 0) {
+      payload_len = *reinterpret_cast<const int64_t*>(begin);
+      begin += sizeof(int64_t);
+    }
+
+    int64_t slice_len = slice.end() - begin;
+    int64_t readable_slice_len =
+        std::min(slice_len, payload_len - consumed_payload_len);
+    int64_t rest_slice_len = slice_len - readable_slice_len;
+
+    if (rest_slice_len == 0) {
+      payload_slices.push_back(slice);
+      slice_idx++;
+    } else {
+      // Partial read
+      payload_slices.push_back(::grpc::Slice(begin, readable_slice_len));
+      // trim last slice that contains payload
+      slice = ::grpc::Slice(begin + readable_slice_len, rest_slice_len);
+    }
+    consumed_payload_len += readable_slice_len;
+  } while (consumed_payload_len < payload_len);
+
+  payload_ = ::grpc::ByteBuffer(payload_slices.data(), payload_slices.size());
+  ::grpc::ByteBuffer response_buf(slices.data() + slice_idx,
+                                  slices.size() - slice_idx);
+
+  ::grpc::ProtoBufferReader reader(&response_buf);
+  parse_ok &= meta_.ParseFromZeroCopyStream(&reader);
+
+  if (!parse_ok) {
+    s.Update(errors::Internal("could not parse rpc response"));
+  }
+  return s;
 }
 
 }  // namespace tensorflow

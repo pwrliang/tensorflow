@@ -195,7 +195,7 @@ cc_library(
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core/protobuf:worker_proto_cc",
-    ],
+    ] + tf_grpc_cc_dependencies(),
 )
 
 cc_library(
@@ -561,6 +561,7 @@ cc_library(
         ":cancellable_call",
         ":request_id",
         ":worker_cache",
+        ":tensor_coding",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib_internal",  # protobuf::Any

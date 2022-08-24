@@ -20,9 +20,9 @@ limitations under the License.
 #include <map>
 #include <unordered_map>
 
+#include "grpcpp/create_channel.h"
 #include "absl/strings/escaping.h"
 #include "absl/strings/str_split.h"
-#include "grpcpp/create_channel.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_channel_common.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -36,7 +36,6 @@ limitations under the License.
 #include "tensorflow/core/platform/thread_annotations.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/util/device_name_utils.h"
-#include "tensorflow/core/util/env_var.h"
 
 namespace tensorflow {
 
@@ -322,29 +321,6 @@ class SparseGrpcChannelCache : public CachingGrpcChannelCache {
     VLOG(5) << "Channel created for: job: " << job_id_
             << " host_port: " << host_port << " target : " << target
             << " Ptr: " << chan_ptr.get();
-
-    int64_t data_port;
-    Status status =
-        ReadInt64FromEnvVar("TF_GRPC_DATA_CHANNEL_PORT", 12345, &data_port);
-    if (!status.ok()) {
-      LOG(ERROR) << status.error_message();
-    }
-    std::string data_host_port = host_port.substr(0, host_port.find(":")) +
-                                 ":" + std::to_string(data_port);
-
-    ::grpc::ChannelArguments args;
-
-    args.SetMaxReceiveMessageSize(-1);
-
-    auto data_channel = ::grpc::CreateCustomChannel(
-        data_host_port, ::grpc::InsecureChannelCredentials(), args);
-
-    channel_to_data_channel_[chan_ptr] = data_channel;
-
-    LOG(INFO) << "Channel created for: job: " << job_id_
-              << " host_port: " << host_port
-              << " data_host_port: " << data_host_port << " target : " << target
-              << " Ptr: " << chan_ptr.get();
     return chan_ptr;
   }
 

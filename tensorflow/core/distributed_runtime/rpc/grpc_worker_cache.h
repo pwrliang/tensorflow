@@ -38,9 +38,6 @@ class GrpcWorkerEnv {
     return threads_.at(index).completion_queue();
   }
 
-  ::grpc::CompletionQueue* GetDataChannelCompletionQueue(size_t index) const {
-    return threads_.at(index).data_channel_completion_queue();
-  }
  private:
   // Thread wrapping class that drives work over a single gRPC
   // CompletionQueue.
@@ -54,15 +51,9 @@ class GrpcWorkerEnv {
       return &completion_queue_;
     }
 
-    ::grpc::CompletionQueue* data_channel_completion_queue() const {
-      return &data_channel_completion_queue_;
-    }
-
    private:
     mutable ::grpc::CompletionQueue completion_queue_;
-    mutable ::grpc::CompletionQueue data_channel_completion_queue_;
     std::unique_ptr<Thread> thread_;
-    std::unique_ptr<Thread> data_channel_thread_;
   };
 
   std::unique_ptr<thread::ThreadPool> threadpool_;

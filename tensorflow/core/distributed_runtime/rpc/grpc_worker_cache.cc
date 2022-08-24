@@ -12,9 +12,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#include "grpcpp/stats_time.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_worker_cache.h"
 
-#include "grpcpp/stats_time.h"
 #include "tensorflow/core/distributed_runtime/rpc/coordination/grpc_coordination_client.h"
 #include "tensorflow/core/distributed_runtime/rpc/eager/grpc_eager_client.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_remote_worker.h"
@@ -60,16 +60,8 @@ class GrpcWorkerCache : public WorkerCachePartial {
         return nullptr;
       }
       size_t index = AssignWorkerToThread(target);
-      auto data_channel = channel_cache_->ChannelToDataChannel(channel);
-
-      if (data_channel == nullptr) {
-        LOG(ERROR) << "Got empty channel";
-        abort();
-      }
-
       return NewGrpcRemoteWorker(
-          channel, data_channel, worker_env_->GetCompletionQueue(index),
-          worker_env_->GetDataChannelCompletionQueue(index),
+          channel, worker_env_->GetCompletionQueue(index),
           worker_env_->GetThreadPool(), &logger_, target);
     }
   }
@@ -152,32 +144,12 @@ GrpcWorkerEnv::GrpcWorkerCacheThread::GrpcWorkerCacheThread() {
           grpc_stats_time_enable();
 
           auto rpc_begin_time = absl::Now();
-          if (completion_queue_.Next(&tag, &ok)) {
+          if(completion_queue_.Next(&tag, &ok)) {
             GrpcClientCQTag* callback_tag = static_cast<GrpcClientCQTag*>(tag);
             callback_tag->rpc_begin_time = rpc_begin_time;
             callback_tag->rpc_end_time = absl::Now();
             callback_tag->OnCompleted(ok);
-          } else {
-            break;
-          }
-        }
-      }));
-
-  data_channel_thread_.reset(Env::Default()->StartThread(
-      ThreadOptions(), "GrpcWorkerEnvPoolDataChannel", [this]() {
-        void* tag;
-        bool ok;
-        while (true) {
-          grpc_stats_time_init();
-          grpc_stats_time_enable();
-
-          auto rpc_begin_time = absl::Now();
-          if (data_channel_completion_queue_.Next(&tag, &ok)) {
-            GrpcClientCQTag* callback_tag = static_cast<GrpcClientCQTag*>(tag);
-            callback_tag->rpc_begin_time = rpc_begin_time;
-            callback_tag->rpc_end_time = absl::Now();
-            callback_tag->OnCompleted(ok);
-          } else {
+          }else {
             break;
           }
         }
@@ -187,7 +159,6 @@ GrpcWorkerEnv::GrpcWorkerCacheThread::GrpcWorkerCacheThread() {
 GrpcWorkerEnv::GrpcWorkerCacheThread::~GrpcWorkerCacheThread() {
   completion_queue_.Shutdown();
   thread_.reset();
-  data_channel_thread_.reset();
 }
 
 GrpcWorkerEnv* CreateGrpcWorkerEnv() {

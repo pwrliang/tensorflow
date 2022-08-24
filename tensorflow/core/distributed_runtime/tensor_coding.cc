@@ -314,48 +314,44 @@ Status RecvBufBypassSerResponse::ParseFrom(::grpc::ByteBuffer* source) {
   int64_t payload_len = 0;
   int64_t consumed_payload_len = 0;
   std::vector<::grpc::Slice> payload_slices;
+  int readable_meta_len;
+  int meta_offset = 0;
+  auto meta_len = sizeof(payload_len);
 
   do {
     auto& slice = slices[slice_idx];
     auto* begin = slice.begin();
 
-    if (slice_idx == 0) {
-      CHECK_EQ(payload_len, 0);
-      payload_len = *reinterpret_cast<const uint32_t*>(begin);
-      if (payload_len >= source->Length()) {
-        LOG(INFO) << "Payload len: " << payload_len
-                  << " n slices: " << slices.size()
-                  << " Bytebuffer: " << source->Length();
+    readable_meta_len = std::min(slice.size(), meta_len - meta_offset);
 
-        std::ofstream b_stream("/tmp/slice." + std::to_string(payload_len),
-                               std::fstream::out | std::fstream::binary);
-
-        for (auto& slice : slices) {
-          b_stream.write(reinterpret_cast<const char*>(slice.begin()),
-                         slice.size());
-          GPR_ASSERT(b_stream.good());
-        }
-        abort();
-      }
-      begin += sizeof(uint32_t);
+    if (readable_meta_len > 0) {
+      memcpy(reinterpret_cast<char*>(&payload_len) + meta_offset, begin,
+             readable_meta_len);
+      meta_offset += readable_meta_len;
+      begin += readable_meta_len;
     }
 
     int64_t slice_len = slice.end() - begin;
-    int64_t readable_slice_len =
-        std::min(slice_len, payload_len - consumed_payload_len);
-    int64_t rest_slice_len = slice_len - readable_slice_len;
 
-    if (rest_slice_len == 0) {
-      payload_slices.push_back(slice);
-      slice_idx++;
+    if (slice_len > 0) {
+      int64_t readable_slice_len =
+          std::min(slice_len, payload_len - consumed_payload_len);
+      int64_t rest_slice_len = slice_len - readable_slice_len;
+
+      if (rest_slice_len == 0) {
+        payload_slices.push_back(slice);
+        slice_idx++;
+      } else {
+        // Partial read
+        payload_slices.push_back(::grpc::Slice(begin, readable_slice_len));
+        // trim last slice that contains payload
+        slice = ::grpc::Slice(begin + readable_slice_len, rest_slice_len);
+      }
+      consumed_payload_len += readable_slice_len;
     } else {
-      // Partial read
-      payload_slices.push_back(::grpc::Slice(begin, readable_slice_len));
-      // trim last slice that contains payload
-      slice = ::grpc::Slice(begin + readable_slice_len, rest_slice_len);
+      slice_idx++;
     }
-    consumed_payload_len += readable_slice_len;
-  } while (consumed_payload_len < payload_len);
+  } while (readable_meta_len > 0 || consumed_payload_len < payload_len);
 
   payload_ = ::grpc::ByteBuffer(payload_slices.data(), payload_slices.size());
   ::grpc::ByteBuffer response_buf(slices.data() + slice_idx,

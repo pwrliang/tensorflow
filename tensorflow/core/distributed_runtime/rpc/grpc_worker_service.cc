@@ -636,9 +636,8 @@ void TensorToSlices(int64_t max_chunk_bytes, const Tensor* tensor,
   int64_t num_bytes = tensor->TotalBytes();
   const char* head = reinterpret_cast<const char*>(DMAHelper::base(tensor));
 
-  // Format: Response Len(uint32_t),Response,Tensor
-  uint32_t len = num_bytes;
-  slices->push_back(::grpc::Slice(&len, sizeof(len)));
+  // Format: Response Len(int64_t),Response,Tensor
+  slices->push_back(::grpc::Slice(&num_bytes, sizeof(num_bytes)));
 
   while (num_bytes > 0) {
     int64_t bytes =
@@ -787,13 +786,13 @@ void GrpcWorker::RecvBufAsyncBypassSer(CallOptions* opts,
     std::vector<::grpc::Slice> slices;
 
     if (status.ok()) {
-
       if (!DataTypeCanUseMemcpy(tensor.dtype())) {
         LOG(ERROR) << "Can not memcpy";
       }
 
       TensorToSlices(recv_buf_max_chunk_, &tensor, &slices);
-//      SetTensorInRecvBufResp(recv_buf_max_chunk_, &tensor, &recv_response);
+      //      SetTensorInRecvBufResp(recv_buf_max_chunk_, &tensor,
+      //      &recv_response);
     }
     recv_response.set_send_start_micros(env_->env->NowMicros());
     recv_response.set_require_ack(cache_enabled);

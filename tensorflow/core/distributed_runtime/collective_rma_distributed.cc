@@ -25,6 +25,7 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/call_options.h"
 #include "tensorflow/core/distributed_runtime/cancellable_call.h"
 #include "tensorflow/core/distributed_runtime/request_id.h"
+#include "tensorflow/core/distributed_runtime/tensor_coding.h"
 #include "tensorflow/core/distributed_runtime/worker_cache.h"
 #include "tensorflow/core/framework/cancellation.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -32,7 +33,6 @@ limitations under the License.
 #include "tensorflow/core/profiler/lib/scoped_memory_debug_annotation.h"
 #include "tensorflow/core/protobuf/transport_options.pb.h"
 #include "tensorflow/core/protobuf/worker.pb.h"
-#include "tensorflow/core/distributed_runtime/tensor_coding.h"
 namespace tensorflow {
 
 namespace {
@@ -209,7 +209,8 @@ void CollectiveRemoteAccessDistributed::RecvFromPeer(
           //              dst_tensor);
           Status status = PopulateTensorFromByteBuffer(
               state->call->resp_bypass_ser_.payload(), dst_tensor);
-
+          //          Status status = PopulateTensorFromResponse(
+          //              state->call->resp_bypass_ser_.metadata(), dst_tensor);
           if (!status.ok()) {
             done(status);
             delete state;

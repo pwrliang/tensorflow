@@ -12,8 +12,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-
 #include "tensorflow/core/distributed_runtime/tensor_coding.h"
+
+#include <fstream>
 
 #include "google/protobuf/any.pb.h"
 #include "grpcpp/support/byte_buffer.h"
@@ -299,10 +300,18 @@ bool TensorResponse::ParseSlow(Source* source) {
 
 Status RecvBufBypassSerResponse::ParseFrom(::grpc::ByteBuffer* source) {
   Status s = Status::OK();
+
+  //  ::grpc::ProtoBufferReader reader(source);
+  //  if (!meta_.ParseFromZeroCopyStream(&reader)) {
+  //    s.Update(errors::Internal("could not parse rpc response"));
+  //  }
+  //
+  //  return s;
+
   std::vector<::grpc::Slice> slices;
   bool parse_ok = source->Dump(&slices).ok();
   size_t slice_idx = 0;
-  int64_t payload_len;
+  int64_t payload_len = 0;
   int64_t consumed_payload_len = 0;
   std::vector<::grpc::Slice> payload_slices;
 
@@ -311,8 +320,24 @@ Status RecvBufBypassSerResponse::ParseFrom(::grpc::ByteBuffer* source) {
     auto* begin = slice.begin();
 
     if (slice_idx == 0) {
-      payload_len = *reinterpret_cast<const int64_t*>(begin);
-      begin += sizeof(int64_t);
+      CHECK_EQ(payload_len, 0);
+      payload_len = *reinterpret_cast<const uint32_t*>(begin);
+      if (payload_len >= source->Length()) {
+        LOG(INFO) << "Payload len: " << payload_len
+                  << " n slices: " << slices.size()
+                  << " Bytebuffer: " << source->Length();
+
+        std::ofstream b_stream("/tmp/slice." + std::to_string(payload_len),
+                               std::fstream::out | std::fstream::binary);
+
+        for (auto& slice : slices) {
+          b_stream.write(reinterpret_cast<const char*>(slice.begin()),
+                         slice.size());
+          GPR_ASSERT(b_stream.good());
+        }
+        abort();
+      }
+      begin += sizeof(uint32_t);
     }
 
     int64_t slice_len = slice.end() - begin;

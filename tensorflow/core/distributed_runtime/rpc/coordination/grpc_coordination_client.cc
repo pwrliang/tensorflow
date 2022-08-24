@@ -175,7 +175,7 @@ class GrpcCoordinationClientCache : public CoordinationClientCache {
     mutex_lock l(clients_mu_);
     auto it = clients_.find(target);
     if (it == clients_.end()) {
-      SharedGrpcChannelPtr channel = channel_cache_->FindWorkerChannel(target).first;
+      SharedGrpcChannelPtr channel = channel_cache_->FindWorkerChannel(target);
       if (channel == nullptr) {
         VLOG(2) << "Coordination client for target " << target << " not found.";
       }
@@ -189,7 +189,7 @@ class GrpcCoordinationClientCache : public CoordinationClientCache {
 
   std::unique_ptr<CoordinationClient> GetOwnedClient(
       const string& target) override {
-    SharedGrpcChannelPtr channel = channel_cache_->FindWorkerChannel(target).first;
+    SharedGrpcChannelPtr channel = channel_cache_->FindWorkerChannel(target);
     if (channel == nullptr) {
       VLOG(2) << "Coordination client for target " << target << " not found.";
     }

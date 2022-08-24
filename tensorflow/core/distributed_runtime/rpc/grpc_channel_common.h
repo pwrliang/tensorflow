@@ -41,8 +41,7 @@ class GenericCachingChannelCache : public ChannelCacheT {
 
   ~GenericCachingChannelCache() override {}
 
-  std::pair<SharedGrpcChannelPtr, SharedGrpcChannelPtr> FindWorkerChannel(
-      const string& target) override {
+  SharedGrpcChannelPtr FindWorkerChannel(const string& target) override {
     {
       mutex_lock l(mu_);
       auto iter = channels_.find(target);
@@ -53,7 +52,7 @@ class GenericCachingChannelCache : public ChannelCacheT {
     ChannelState new_chan_state;
     for (int indx = 0; indx < num_channels_per_target_; indx++) {
       auto ch = FindChannelOnce(target);
-      if (!ch.first) return ch;
+      if (!ch) return nullptr;
       new_chan_state.channels.push_back(ch);
     }
     new_chan_state.last_used = num_channels_per_target_ - 1;
@@ -70,22 +69,33 @@ class GenericCachingChannelCache : public ChannelCacheT {
     }
   }
 
+  SharedGrpcChannelPtr ChannelToDataChannel(
+      SharedGrpcChannelPtr chan_ptr) override {
+    if (channel_to_data_channel_.find(chan_ptr) ==
+        channel_to_data_channel_.end()) {
+      return nullptr;
+    }
+    return channel_to_data_channel_[chan_ptr];
+  }
+
  protected:
   // Find the ClientChannel for "target".  Only called when no channel was
   // found in the channels_ cache for "target".  A non nullptr result will be
   // cached in channels_.
-  virtual std::pair<SharedGrpcChannelPtr, SharedGrpcChannelPtr> FindChannelOnce(
-      const string& target) = 0;
+  virtual SharedGrpcChannelPtr FindChannelOnce(const string& target) = 0;
+
+  absl::flat_hash_map<SharedGrpcChannelPtr, SharedGrpcChannelPtr>
+      channel_to_data_channel_ TF_GUARDED_BY(mu_);
 
  private:
   struct ChannelState {
-    std::vector<std::pair<SharedGrpcChannelPtr, SharedGrpcChannelPtr>> channels;
+    std::vector<SharedGrpcChannelPtr> channels;
     int last_used;
   };
 
   // Should be called with mu_ held.
-  std::pair<SharedGrpcChannelPtr, SharedGrpcChannelPtr>
-  GetNextChannelPtrAndUpdateState(ChannelState& chan_state) {
+  SharedGrpcChannelPtr GetNextChannelPtrAndUpdateState(
+      ChannelState& chan_state) {
     // Following statement is marked as Crash OK as this is an invariant of
     // code flow in this class.
     CHECK_EQ(chan_state.channels.size(), num_channels_per_target_);  // Crash OK

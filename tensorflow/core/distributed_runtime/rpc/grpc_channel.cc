@@ -237,17 +237,16 @@ class MultiGrpcChannelCache : public CachingGrpcChannelCache {
   }
 
  protected:
-  std::pair<SharedGrpcChannelPtr, SharedGrpcChannelPtr> FindChannelOnce(
-      const string& target) override {
+  SharedGrpcChannelPtr FindChannelOnce(const string& target) override {
     for (GrpcChannelCache* cache : caches_) {
-      auto ch_pair(cache->FindWorkerChannel(target));
-      if (ch_pair.first) {
+      SharedGrpcChannelPtr ch(cache->FindWorkerChannel(target));
+      if (ch) {
         mutex_lock l(mu_);
         target_caches_.insert({target, cache});
-        return ch_pair;
+        return ch;
       }
     }
-    return std::make_pair(nullptr, nullptr);
+    return nullptr;
   }
 
  private:
@@ -314,11 +313,10 @@ class SparseGrpcChannelCache : public CachingGrpcChannelCache {
   }
 
  protected:
-  std::pair<SharedGrpcChannelPtr, SharedGrpcChannelPtr> FindChannelOnce(
-      const string& target) override {
+  SharedGrpcChannelPtr FindChannelOnce(const string& target) override {
     const string host_port = TranslateTask(target);
     if (host_port.empty()) {
-      return std::make_pair(nullptr, nullptr);
+      return nullptr;
     }
     auto chan_ptr = channel_func_(host_port);
     VLOG(5) << "Channel created for: job: " << job_id_
@@ -341,11 +339,13 @@ class SparseGrpcChannelCache : public CachingGrpcChannelCache {
     auto data_channel = ::grpc::CreateCustomChannel(
         data_host_port, ::grpc::InsecureChannelCredentials(), args);
 
+    channel_to_data_channel_[chan_ptr] = data_channel;
+
     LOG(INFO) << "Channel created for: job: " << job_id_
               << " host_port: " << host_port
               << " data_host_port: " << data_host_port << " target : " << target
               << " Ptr: " << chan_ptr.get();
-    return std::make_pair(chan_ptr, data_channel);
+    return chan_ptr;
   }
 
  private:

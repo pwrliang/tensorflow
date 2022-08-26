@@ -268,7 +268,6 @@ class GrpcWorkerServiceThread {
 
   void RecvTensorHandlerRaw(
       WorkerCall<RecvTensorRequest, ::grpc::ByteBuffer>* call) {
-    LOG(INFO) << "Got RecvTensorHandlerRaw";
     Schedule([this, call]() {
       CallOptions* call_opts = new CallOptions;
       call->SetCancelCallback([call_opts]() { call_opts->StartCancel(); });

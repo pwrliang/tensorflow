@@ -249,16 +249,16 @@ class GrpcRemoteWorker : public WorkerInterface {
           //                    << " Exec time: " <<
           //                    response->exec_time_micros() / 1000
           //                    << " ms";
-          {
-            auto& profiler = CommProfiler::GetInstance();
-            std::lock_guard<std::mutex> lg_(profiler.mutex_);
-            auto& entry = profiler.comm_time_[std::this_thread::get_id()];
-
-            entry.rpc_time_ms += s.get_rpc_time_ms();
-            entry.exec_time_ms += response->exec_time_micros() / 1000.0;
-            entry.size_bytes += num_bytes;
-            entry.count++;
-          }
+//          {
+//            auto& profiler = CommProfiler::GetInstance();
+//            std::lock_guard<std::mutex> lg_(profiler.mutex_);
+//            auto& entry = profiler.comm_time_[std::this_thread::get_id()];
+//
+//            entry.rpc_time_ms += s.get_rpc_time_ms();
+//            entry.exec_time_ms += response->exec_time_micros() / 1000.0;
+//            entry.size_bytes += num_bytes;
+//            entry.count++;
+//          }
           logger_->RecordDataTransfer(
               step_id, send_start_usec, end_usec, key, request->src_device(),
               request->dst_device(), num_bytes, "", "RecvBuf");
